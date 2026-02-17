@@ -45,7 +45,7 @@ export default function Sidebar(props: Props) {
           <p className="eyebrow">Preset</p>
           <h2>番茄预设</h2>
         </div>
-        <button className="icon-button" type="button" onClick={createPreset} title="新增预设">
+        <button className="icon-button" type="button" onClick={createPreset} title="新增预设" aria-label="新增预设">
           <Plus size={18} />
         </button>
       </div>
@@ -131,7 +131,7 @@ export default function Sidebar(props: Props) {
             if (event.key === 'Enter') addTodo();
           }}
         />
-        <button className="icon-button" type="button" onClick={addTodo} title="新增待办">
+        <button className="icon-button" type="button" onClick={addTodo} title="新增待办" aria-label="新增待办">
           <Plus size={18} />
         </button>
       </div>
