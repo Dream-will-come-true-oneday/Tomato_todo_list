@@ -1,4 +1,3 @@
-import { createDefaultTodo } from './defaultData';
 import { createPomodoroRecord } from './pomodoro';
 import type { AppData, PomodoroCompletionType, TimerPreset, Todo } from './types';
 
@@ -11,7 +10,7 @@ export type AppAction =
       actualElapsedSeconds: number;
       completionType: PomodoroCompletionType;
     }
-  | { type: 'addTodo'; title: string }
+  | { type: 'addTodo'; todo: Todo }
   | { type: 'updateTodo'; todo: Todo }
   | { type: 'setActivePreset'; presetId: string }
   | { type: 'upsertPreset'; preset: TimerPreset }
@@ -36,7 +35,7 @@ export function appReducer(data: AppData, action: AppAction): AppData {
       };
     }
     case 'addTodo': {
-      return { ...data, todos: [createDefaultTodo(action.title), ...data.todos] };
+      return { ...data, todos: [action.todo, ...data.todos] };
     }
     case 'updateTodo': {
       return {
