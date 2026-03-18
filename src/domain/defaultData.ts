@@ -47,7 +47,7 @@ export function createDefaultTodo(title = '整理今日计划'): Todo {
     id: `todo-${crypto.randomUUID()}`,
     title,
     notes: '',
-    status: 'active',
+    status: 'notStarted',
     priority: 'medium',
     startAt: null,
     dueAt: null,
