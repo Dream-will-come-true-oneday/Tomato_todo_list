@@ -15,7 +15,7 @@ type Props = {
 
 export default function Sidebar(props: Props) {
   const [newTodoTitle, setNewTodoTitle] = useState('');
-  const activePreset = props.data.presets.find((preset) => preset.id === props.data.activePresetId)!;
+  const activePreset = props.data.presets.find((preset) => preset.id === props.data.activePresetId) ?? props.data.presets[0];
 
   function addTodo() {
     const title = newTodoTitle.trim();
@@ -39,10 +39,10 @@ export default function Sidebar(props: Props) {
   const activeTodos = props.data.todos.filter((todo) => todo.status !== 'archived');
 
   return (
-    <aside className="panel sidebar">
+    <aside className="side-panel">
       <div className="section-header">
         <div>
-          <p className="eyebrow">Preset</p>
+          <p className="eyebrow">钟法</p>
           <h2>番茄预设</h2>
         </div>
         <button className="icon-button" type="button" onClick={createPreset} title="新增预设" aria-label="新增预设">
@@ -58,7 +58,7 @@ export default function Sidebar(props: Props) {
         ))}
       </select>
 
-      <div className="preset-grid">
+      <div className="preset-fields">
         <label>
           名称
           <input value={activePreset.name} onChange={(event) => updatePreset('name', event.target.value)} />
@@ -72,57 +72,21 @@ export default function Sidebar(props: Props) {
             onChange={(event) => updatePreset('focusMinutes', Number(event.target.value))}
           />
         </label>
-        <label>
-          短休
-          <input
-            type="number"
-            min="1"
-            value={activePreset.shortBreakMinutes}
-            onChange={(event) => updatePreset('shortBreakMinutes', Number(event.target.value))}
-          />
-        </label>
-        <label>
-          长休
-          <input
-            type="number"
-            min="1"
-            value={activePreset.longBreakMinutes}
-            onChange={(event) => updatePreset('longBreakMinutes', Number(event.target.value))}
-          />
-        </label>
-        <label>
-          间隔
-          <input
-            type="number"
-            min="1"
-            value={activePreset.longBreakInterval}
-            onChange={(event) => updatePreset('longBreakInterval', Number(event.target.value))}
-          />
-        </label>
       </div>
-
-      <label className="toggle-row">
-        <input
-          type="checkbox"
-          checked={activePreset.autoStartNextPhase}
-          onChange={(event) => updatePreset('autoStartNextPhase', event.target.checked)}
-        />
-        自动开始下一段
-      </label>
 
       <button className="ghost-button" type="button" onClick={() => props.onDeletePreset(activePreset.id)}>
         <Trash2 size={16} />
         删除当前预设
       </button>
 
-      <div className="section-header todos-header">
+      <div className="section-header">
         <div>
-          <p className="eyebrow">Todos</p>
+          <p className="eyebrow">案牍</p>
           <h2>待办记录</h2>
         </div>
       </div>
 
-      <div className="add-row">
+      <div className="toolbar">
         <input
           placeholder="新增待办"
           value={newTodoTitle}
@@ -136,13 +100,13 @@ export default function Sidebar(props: Props) {
         </button>
       </div>
 
-      <div className="todo-list">
+      <div className="today-list">
         {activeTodos.map((todo) => {
           const badge = getTodoTimeBadge(todo);
           return (
             <button
               key={todo.id}
-              className={`todo-item ${todo.id === props.selectedTodoId ? 'selected' : ''}`}
+              className={todo.id === props.selectedTodoId ? 'todo-card active' : 'todo-card'}
               type="button"
               onClick={() => props.onSelectTodo(todo.id)}
             >

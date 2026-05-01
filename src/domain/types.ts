@@ -1,6 +1,8 @@
 export type TimerPhase = 'focus' | 'shortBreak' | 'longBreak';
 export type TodoStatus = 'notStarted' | 'active' | 'completed' | 'archived';
 export type TodoPriority = 'low' | 'medium' | 'high';
+export type TodoTerm = 'short' | 'long';
+export type UrgencyTag = 'urgent' | 'important';
 export type PomodoroCompletionType = 'completed' | 'skipped' | 'reset';
 
 export type TimerPreset = {
@@ -11,6 +13,7 @@ export type TimerPreset = {
   longBreakMinutes: number;
   longBreakInterval: number;
   autoStartNextPhase: boolean;
+  soundEnabled: boolean;
 };
 
 export type Todo = {
@@ -19,12 +22,43 @@ export type Todo = {
   notes: string;
   status: TodoStatus;
   priority: TodoPriority;
+  parentId: string | null;
+  term: TodoTerm;
+  urgencyTags: UrgencyTag[];
+  typeTagIds: string[];
   startAt: string | null;
   dueAt: string | null;
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
   pomodoroCount: number;
+};
+
+export type TodoTypeTag = {
+  id: string;
+  name: string;
+  color: string;
+  createdAt: string;
+};
+
+export type DailyReflection = {
+  date: string;
+  content: string;
+  updatedAt: string;
+};
+
+export type WeeklyReflection = {
+  weekStart: string;
+  content: string;
+  updatedAt: string;
+};
+
+export type BacklogItem = {
+  id: string;
+  title: string;
+  isPlanned: boolean;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type PomodoroRecord = {
@@ -38,10 +72,20 @@ export type PomodoroRecord = {
   completionType: PomodoroCompletionType;
 };
 
+export type DailyPomodoroPlan = {
+  addedTodoIds: string[];
+  excludedTodoIds: string[];
+};
+
 export type AppData = {
-  version: 1;
+  version: 3;
   presets: TimerPreset[];
   todos: Todo[];
+  typeTags: TodoTypeTag[];
+  reflections: DailyReflection[];
+  weeklyReflections: WeeklyReflection[];
+  backlogItems: BacklogItem[];
   pomodoroRecords: PomodoroRecord[];
+  todayPlans: Record<string, DailyPomodoroPlan>;
   activePresetId: string;
 };

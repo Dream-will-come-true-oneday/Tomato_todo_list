@@ -1,4 +1,4 @@
-import type { PomodoroRecord, Todo, TodoPriority, TodoStatus } from '../domain/types';
+import type { PomodoroRecord, Todo, TodoStatus } from '../domain/types';
 import RecordList from './RecordList';
 
 type Props = {
@@ -8,8 +8,7 @@ type Props = {
 };
 
 function toInputDate(value: string | null) {
-  if (!value) return '';
-  return value.slice(0, 10);
+  return value ?? '';
 }
 
 function fromInputDate(value: string) {
@@ -19,21 +18,21 @@ function fromInputDate(value: string) {
 export default function TaskDetail({ todo, records, onSave }: Props) {
   if (!todo) {
     return (
-      <aside className="panel detail-panel">
+      <aside className="detail-panel">
         <p className="empty-state">选择一个待办来编辑日期、备注和状态。</p>
-        <RecordList records={records.filter((record) => record.completionType === 'completed')} />
+        <RecordList records={records} />
       </aside>
     );
   }
 
-  const todoRecords = records.filter((record) => record.todoId === todo.id && record.completionType === 'completed');
+  const todoRecords = records.filter((record) => record.todoId === todo.id);
 
   return (
-    <aside className="panel detail-panel">
-      <p className="eyebrow">Task Detail</p>
+    <aside className="detail-panel">
+      <p className="eyebrow">详情</p>
       <label>
         标题
-        <input value={todo.title} onChange={(event) => onSave({ ...todo, title: event.target.value })} />
+        <input aria-label="标题" value={todo.title} onChange={(event) => onSave({ ...todo, title: event.target.value })} />
       </label>
       <label>
         备注
@@ -41,30 +40,22 @@ export default function TaskDetail({ todo, records, onSave }: Props) {
       </label>
       <div className="form-grid">
         <label>
-          优先级
-          <select value={todo.priority} onChange={(event) => onSave({ ...todo, priority: event.target.value as TodoPriority })}>
-            <option value="low">低</option>
-            <option value="medium">中</option>
-            <option value="high">高</option>
-          </select>
-        </label>
-        <label>
           状态
           <select
+            aria-label="状态"
             value={todo.status}
-            onChange={(event) => {
-              const status = event.target.value as TodoStatus;
-              onSave({
-                ...todo,
-                status,
-                completedAt: status === 'completed' ? new Date().toISOString() : null
-              });
-            }}
+            onChange={(event) => onSave({ ...todo, status: event.target.value as TodoStatus })}
           >
             <option value="notStarted">未开始</option>
             <option value="active">进行中</option>
             <option value="completed">已完成</option>
-            <option value="archived">已归档</option>
+          </select>
+        </label>
+        <label>
+          期限
+          <select value={todo.term} onChange={(event) => onSave({ ...todo, term: event.target.value as Todo['term'] })}>
+            <option value="short">短期</option>
+            <option value="long">长期</option>
           </select>
         </label>
       </div>
