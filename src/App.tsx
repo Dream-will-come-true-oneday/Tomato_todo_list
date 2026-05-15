@@ -24,7 +24,7 @@ import { createBacklogItem, createDefaultTodo, createTypeTag } from './domain/de
 import { loadAppData, saveAppData } from './domain/storage';
 import { isCompletedOn, isIncompleteTodo, isTodayPomodoroTodo, toDateKey } from './domain/todoFilters';
 import { getTodoTimeBadge } from './domain/todoStatus';
-import { getCompletedTypeTagShares, getWeekStart, getWeekSummary, type TypeTagShare } from './domain/reporting';
+import { buildWeeklyTodoTree, getCompletedTypeTagShares, getWeekStart, getWeekSummary, type TypeTagShare, type WeeklyTodoNode } from './domain/reporting';
 import type { BacklogItem, DailyPomodoroPlan, PomodoroRecord, TimerPreset, Todo, TodoStatus, TodoTerm, UrgencyTag } from './domain/types';
 
 type Page = 'home' | 'pomodoro' | 'todoHub' | 'todayPlan' | 'incomplete' | 'completed' | 'weeklySummary' | 'backlog';
@@ -193,11 +193,13 @@ export default function App() {
   const [page, setPage] = useState<Page>('home');
   const [recovered, setRecovered] = useState(initialLoad.recovered);
   const [selectedPomodoroTodoId, setSelectedPomodoroTodoId] = useState<string | null>(null);
+  const [todoTagFocusId, setTodoTagFocusId] = useState<string | null>(null);
   const today = toDateKey();
 
   useEffect(() => {
+    if (initialLoad.recovered) return;
     saveAppData(data);
-  }, [data]);
+  }, [data, initialLoad.recovered]);
 
   const activePreset = useMemo(
     () => data.presets.find((preset) => preset.id === data.activePresetId) ?? data.presets[0],
@@ -289,6 +291,8 @@ export default function App() {
           }
           onDeleteTodo={(todoId) => dispatch({ type: 'deleteTodo', todoId })}
           onUpdateTodo={updateTodo}
+          focusTodoId={todoTagFocusId}
+          onFocusHandled={() => setTodoTagFocusId(null)}
         />
       )}
       {page === 'completed' && (
@@ -298,6 +302,10 @@ export default function App() {
           onSaveReflection={(date, content) =>
             dispatch({ type: 'upsertReflection', reflection: { date, content, updatedAt: currentIso() } })
           }
+          onOpenTodoTags={(todoId) => {
+            setTodoTagFocusId(todoId);
+            setPage('incomplete');
+          }}
         />
       )}
       {page === 'weeklySummary' && (
@@ -674,7 +682,9 @@ function IncompleteTodosPage({
   onUpdateTodo,
   onDeleteTodo,
   onAddTypeTag,
-  onDeleteTypeTag
+  onDeleteTypeTag,
+  focusTodoId,
+  onFocusHandled
 }: {
   data: {
     todos: Todo[];
@@ -687,6 +697,8 @@ function IncompleteTodosPage({
   onDeleteTodo: (todoId: string) => void;
   onAddTypeTag: (name: string, color: string) => void;
   onDeleteTypeTag: (tagId: string) => void;
+  focusTodoId: string | null;
+  onFocusHandled: () => void;
 }) {
   const [title, setTitle] = useState('');
   const [term, setTerm] = useState<TodoTerm>('short');
@@ -697,6 +709,8 @@ function IncompleteTodosPage({
   const [filters, setFilters] = useState<TodoFilterState>(defaultTodoFilters);
   const [selectedTodayPlanTodoIds, setSelectedTodayPlanTodoIds] = useState<string[]>([]);
   const [pendingDeleteTypeTagId, setPendingDeleteTypeTagId] = useState<string | null>(null);
+  const [blockedDeleteTypeTagId, setBlockedDeleteTypeTagId] = useState<string | null>(null);
+  const [completionTagDialogTodo, setCompletionTagDialogTodo] = useState<Todo | null>(null);
   const todayPlanTodoIdSet = new Set(todayPlanTodos.map((todo) => todo.id));
   const incompleteTodos = data.todos.filter(isIncompleteTodo).filter((todo) => matchesTodoFilters(todo, filters));
   const visibleTodayPlanCandidates = incompleteTodos.filter((todo) => !todayPlanTodoIdSet.has(todo.id));
@@ -705,6 +719,15 @@ function IncompleteTodosPage({
   );
   const allVisibleCandidatesSelected =
     visibleTodayPlanCandidates.length > 0 && visibleTodayPlanCandidates.every((todo) => selectedTodayPlanTodoIds.includes(todo.id));
+
+  useEffect(() => {
+    if (!focusTodoId) return;
+    const tags = document.getElementById(`todo-type-tags-${focusTodoId}`);
+    tags?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    const firstTagInput = tags?.querySelector<HTMLInputElement>('input:not(:disabled)');
+    firstTagInput?.focus();
+    onFocusHandled();
+  }, [focusTodoId, onFocusHandled]);
 
   function addTodo() {
     const trimmed = title.trim();
@@ -721,6 +744,18 @@ function IncompleteTodosPage({
   }
 
   function deleteTypeTag(tagId: string) {
+    const remainingTagIds = new Set(data.typeTags.filter((tag) => tag.id !== tagId).map((tag) => tag.id));
+    const wouldLeaveCompletedTodoUntagged = data.todos.some(
+      (todo) =>
+        todo.status === 'completed' &&
+        todo.typeTagIds.includes(tagId) &&
+        !todo.typeTagIds.some((todoTagId) => todoTagId !== tagId && remainingTagIds.has(todoTagId))
+    );
+    if (wouldLeaveCompletedTodoUntagged) {
+      setBlockedDeleteTypeTagId(tagId);
+      setPendingDeleteTypeTagId(null);
+      return;
+    }
     onDeleteTypeTag(tagId);
     setPendingDeleteTypeTagId(null);
     if (filters.typeTagId === tagId) {
@@ -791,6 +826,7 @@ function IncompleteTodosPage({
         {data.typeTags.map((tag) => {
           const usageCount = data.todos.filter((todo) => todo.typeTagIds.includes(tag.id)).length;
           const isConfirmingDelete = pendingDeleteTypeTagId === tag.id;
+          const isDeleteBlocked = blockedDeleteTypeTagId === tag.id;
 
           return (
             <div key={tag.id} className={isConfirmingDelete ? 'type-tag-chip confirming' : 'type-tag-chip'} style={{ borderColor: tag.color }}>
@@ -799,7 +835,14 @@ function IncompleteTodosPage({
                 {tag.name}
               </span>
               <small>{usageCount} 项</small>
-              {isConfirmingDelete ? (
+              {isDeleteBlocked ? (
+                <>
+                  <small className="type-tag-delete-blocked">已完成待办仍在使用此唯一标签，无法删除。</small>
+                  <button className="ghost-button" type="button" onClick={() => setBlockedDeleteTypeTagId(null)}>
+                    知道了
+                  </button>
+                </>
+              ) : isConfirmingDelete ? (
                 <>
                   <button className="danger-button" type="button" onClick={() => deleteTypeTag(tag.id)}>
                     确认删除
@@ -856,6 +899,7 @@ function IncompleteTodosPage({
         onAddTodo={onAddTodo}
         onDeleteTodo={onDeleteTodo}
         onUpdateTodo={onUpdateTodo}
+        onCompletionBlocked={setCompletionTagDialogTodo}
       />
       <TodoTable
         title="长期待办"
@@ -868,7 +912,20 @@ function IncompleteTodosPage({
         onAddTodo={onAddTodo}
         onDeleteTodo={onDeleteTodo}
         onUpdateTodo={onUpdateTodo}
+        onCompletionBlocked={setCompletionTagDialogTodo}
       />
+      {completionTagDialogTodo && (
+        <CompletionTagDialog
+          todoTitle={completionTagDialogTodo.title}
+          onClose={() => setCompletionTagDialogTodo(null)}
+          onConfirm={() => {
+            const tags = document.getElementById(`todo-type-tags-${completionTagDialogTodo.id}`);
+            tags?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+            tags?.querySelector<HTMLInputElement>('input:not(:disabled)')?.focus();
+            setCompletionTagDialogTodo(null);
+          }}
+        />
+      )}
     </section>
   );
 }
@@ -883,7 +940,8 @@ function TodoTable({
   onToggleTodayPlanSelection,
   onAddTodo,
   onUpdateTodo,
-  onDeleteTodo
+  onDeleteTodo,
+  onCompletionBlocked
 }: {
   title: string;
   todos: Todo[];
@@ -895,7 +953,9 @@ function TodoTable({
   onAddTodo: (todo: Todo) => void;
   onUpdateTodo: (todo: Todo, patch: Partial<Todo>) => void;
   onDeleteTodo: (todoId: string) => void;
+  onCompletionBlocked: (todo: Todo) => void;
 }) {
+  const [expandedTodoIds, setExpandedTodoIds] = useState<Set<string>>(() => new Set(todos.map((todo) => todo.id)));
   const visibleTodoIds = new Set(todos.map((todo) => todo.id));
   const roots = todos.filter((todo) => !todo.parentId || !visibleTodoIds.has(todo.parentId));
   const childrenByParent = new Map<string, Todo[]>();
@@ -903,10 +963,44 @@ function TodoTable({
     childrenByParent.set(child.parentId!, [...(childrenByParent.get(child.parentId!) ?? []), child]);
   }
   const sortedRoots = [...roots].sort(compareTodosBySchedule);
+  const parentTodoIds = [...childrenByParent.keys()];
+
+  function toggleTodoChildren(todoId: string) {
+    setExpandedTodoIds((current) => {
+      const next = new Set(current);
+      if (next.has(todoId)) next.delete(todoId);
+      else next.add(todoId);
+      return next;
+    });
+  }
+
+  function expandAllTodoChildren() {
+    setExpandedTodoIds((current) => new Set([...current, ...parentTodoIds]));
+  }
+
+  function collapseAllTodoChildren() {
+    setExpandedTodoIds((current) => {
+      const next = new Set(current);
+      parentTodoIds.forEach((todoId) => next.delete(todoId));
+      return next;
+    });
+  }
 
   return (
     <section className="table-section">
-      <h2>{title}</h2>
+      <div className="table-section-heading">
+        <h2>{title}</h2>
+        {parentTodoIds.length > 0 && (
+          <div className="tree-bulk-actions" aria-label={`${title} 子任务显示`}>
+            <button className="ghost-button" type="button" onClick={expandAllTodoChildren}>
+              全部展开
+            </button>
+            <button className="ghost-button" type="button" onClick={collapseAllTodoChildren}>
+              全部收起
+            </button>
+          </div>
+        )}
+      </div>
       <div className="todo-table" role="table" aria-label={title}>
         <div className="todo-row table-head" role="row">
           <span>事项</span>
@@ -929,6 +1023,9 @@ function TodoTable({
             onAddTodo={onAddTodo}
             onDeleteTodo={onDeleteTodo}
             onUpdateTodo={onUpdateTodo}
+            onCompletionBlocked={onCompletionBlocked}
+            expandedTodoIds={expandedTodoIds}
+            onToggleTodoChildren={toggleTodoChildren}
           />
         ))}
         {todos.length === 0 && <p className="empty-state table-empty">暂无待办。</p>}
@@ -947,6 +1044,9 @@ function TodoRows({
   onAddTodo,
   onUpdateTodo,
   onDeleteTodo,
+  onCompletionBlocked,
+  expandedTodoIds,
+  onToggleTodoChildren,
   depth = 0
 }: {
   todo: Todo;
@@ -958,9 +1058,14 @@ function TodoRows({
   onAddTodo: (todo: Todo) => void;
   onUpdateTodo: (todo: Todo, patch: Partial<Todo>) => void;
   onDeleteTodo: (todoId: string) => void;
+  onCompletionBlocked: (todo: Todo) => void;
+  expandedTodoIds: Set<string>;
+  onToggleTodoChildren: (todoId: string) => void;
   depth?: number;
 }) {
   const children = [...(childrenByParent.get(todo.id) ?? [])].sort(compareTodosBySchedule);
+  const hasChildren = children.length > 0;
+  const isExpanded = expandedTodoIds.has(todo.id);
 
   return (
     <>
@@ -974,8 +1079,12 @@ function TodoRows({
         onAddTodo={onAddTodo}
         onDeleteTodo={onDeleteTodo}
         onUpdateTodo={onUpdateTodo}
+        onCompletionBlocked={onCompletionBlocked}
+        hasChildren={hasChildren}
+        isExpanded={isExpanded}
+        onToggleChildren={onToggleTodoChildren}
       />
-      {children.map((child) => (
+      {hasChildren && isExpanded && children.map((child) => (
         <TodoRows
           key={child.id}
           todo={child}
@@ -988,6 +1097,9 @@ function TodoRows({
           onAddTodo={onAddTodo}
           onDeleteTodo={onDeleteTodo}
           onUpdateTodo={onUpdateTodo}
+          onCompletionBlocked={onCompletionBlocked}
+          expandedTodoIds={expandedTodoIds}
+          onToggleTodoChildren={onToggleTodoChildren}
         />
       ))}
     </>
@@ -1003,7 +1115,11 @@ function TodoRow({
   onToggleTodayPlanSelection,
   onAddTodo,
   onUpdateTodo,
-  onDeleteTodo
+  onDeleteTodo,
+  onCompletionBlocked,
+  hasChildren,
+  isExpanded,
+  onToggleChildren
 }: {
   todo: Todo;
   depth?: number;
@@ -1014,6 +1130,10 @@ function TodoRow({
   onAddTodo: (todo: Todo) => void;
   onUpdateTodo: (todo: Todo, patch: Partial<Todo>) => void;
   onDeleteTodo: (todoId: string) => void;
+  onCompletionBlocked: (todo: Todo) => void;
+  hasChildren: boolean;
+  isExpanded: boolean;
+  onToggleChildren: (todoId: string) => void;
 }) {
   const badge = getTodoTimeBadge(todo);
 
@@ -1033,8 +1153,26 @@ function TodoRow({
 
   return (
     <div className={depth > 0 ? 'todo-row child-row' : 'todo-row'} role="row">
-      <div className="title-cell" style={{ paddingLeft: depth > 0 ? `${Math.min(depth, 6) * 18}px` : undefined }}>
-        {depth > 0 && <span className="branch-mark">└</span>}
+      <div
+        className="title-cell"
+        style={{ gridTemplateColumns: `${30 + Math.min(depth, 6) * 24}px auto minmax(0, 1fr) auto` }}
+      >
+        <span className="tree-gutter">
+          {hasChildren ? (
+            <button
+              className={isExpanded ? 'tree-toggle expanded' : 'tree-toggle'}
+              type="button"
+              aria-label={`${isExpanded ? '收起' : '展开'} ${todo.title} 的子任务`}
+              aria-expanded={isExpanded}
+              title={isExpanded ? '收起子任务' : '展开子任务'}
+              onClick={() => onToggleChildren(todo.id)}
+            >
+              <ChevronRight size={17} aria-hidden="true" />
+            </button>
+          ) : depth > 0 ? (
+            <span className="branch-mark">└</span>
+          ) : null}
+        </span>
         <label className={isInTodayPlan ? 'today-plan-picker joined' : 'today-plan-picker'}>
           <input
             type="checkbox"
@@ -1065,7 +1203,14 @@ function TodoRow({
       <select
         aria-label={`${todo.title} 状态`}
         value={todo.status}
-        onChange={(event) => onUpdateTodo(todo, { status: event.target.value as TodoStatus })}
+        onChange={(event) => {
+          const nextStatus = event.target.value as TodoStatus;
+          if (nextStatus === 'completed' && !todo.typeTagIds.some((tagId) => typeTags.some((tag) => tag.id === tagId))) {
+            onCompletionBlocked(todo);
+            return;
+          }
+          onUpdateTodo(todo, { status: nextStatus });
+        }}
       >
         <option value="notStarted">{statusLabels.notStarted}</option>
         <option value="active">{statusLabels.active}</option>
@@ -1083,11 +1228,16 @@ function TodoRow({
           </label>
         ))}
       </div>
-      <div className="type-tags">
+      <div className="type-tags" id={`todo-type-tags-${todo.id}`}>
         {typeTags.length === 0 && <em>暂无标签</em>}
         {typeTags.map((tag) => (
           <label key={tag.id} style={{ borderColor: tag.color }}>
-            <input type="checkbox" checked={todo.typeTagIds.includes(tag.id)} onChange={() => toggleTypeTag(tag.id)} />
+            <input
+              type="checkbox"
+              aria-label={`${todo.title} 类型标签 ${tag.name}`}
+              checked={todo.typeTagIds.includes(tag.id)}
+              onChange={() => toggleTypeTag(tag.id)}
+            />
             {tag.name}
           </label>
         ))}
@@ -1105,6 +1255,33 @@ function TodoRow({
           <Trash2 size={16} />
         </button>
       </div>
+    </div>
+  );
+}
+
+function CompletionTagDialog({
+  todoTitle,
+  onClose,
+  onConfirm
+}: {
+  todoTitle: string;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="completion-dialog-backdrop" role="presentation">
+      <section className="completion-dialog" role="alertdialog" aria-modal="true" aria-labelledby="completion-dialog-title">
+        <h2 id="completion-dialog-title">完成前请选择类型标签</h2>
+        <p>“{todoTitle}”尚未标注类型，无法标记为已完成。</p>
+        <div className="completion-dialog-actions">
+          <button className="ghost-button" type="button" onClick={onClose}>
+            取消
+          </button>
+          <button type="button" onClick={onConfirm} autoFocus>
+            前往添加标签
+          </button>
+        </div>
+      </section>
     </div>
   );
 }
@@ -1200,17 +1377,42 @@ function TypeTagBadges({ todo, typeTags }: { todo: Todo; typeTags: TypeTagView[]
 function CompletedTodosPage({
   data,
   onUpdateTodo,
-  onSaveReflection
+  onSaveReflection,
+  onOpenTodoTags
 }: {
   data: { todos: Todo[]; reflections: { date: string; content: string }[]; typeTags: TypeTagView[] };
   onUpdateTodo: (todo: Todo, patch: Partial<Todo>) => void;
   onSaveReflection: (date: string, content: string) => void;
+  onOpenTodoTags: (todoId: string) => void;
 }) {
   const [date, setDate] = useState(toDateKey());
   const [filters, setFilters] = useState<TodoFilterState>(defaultTodoFilters);
   const completedGroups = filterCompletedTodoGroups(buildCompletedTodoGroups(data.todos, date), filters);
   const reflection = data.reflections.find((item) => item.date === date)?.content ?? '';
   const typeTagShares = getCompletedTypeTagShares(data.todos, data.typeTags);
+  const [completionTagDialogTodo, setCompletionTagDialogTodo] = useState<Todo | null>(null);
+  const [expandedCompletedParentIds, setExpandedCompletedParentIds] = useState<Set<string>>(() => new Set());
+
+  function isCompletedGroupExpanded(group: CompletedTodoGroup) {
+    return !expandedCompletedParentIds.has(group.parent.id);
+  }
+
+  function toggleCompletedGroup(parentId: string) {
+    setExpandedCompletedParentIds((current) => {
+      const next = new Set(current);
+      if (next.has(parentId)) next.delete(parentId);
+      else next.add(parentId);
+      return next;
+    });
+  }
+
+  function expandAllCompletedGroups() {
+    setExpandedCompletedParentIds(new Set());
+  }
+
+  function collapseAllCompletedGroups() {
+    setExpandedCompletedParentIds(new Set(completedGroups.filter((group) => group.children.length > 0).map((group) => group.parent.id)));
+  }
 
   return (
     <section className="page-panel table-page">
@@ -1228,24 +1430,51 @@ function CompletedTodosPage({
         statusOptions={['notStarted', 'active', 'completed']}
         onChange={setFilters}
       />
+      {completedGroups.some((group) => group.children.length > 0) && (
+        <div className="tree-bulk-actions completed-tree-actions" aria-label="已完成待办子任务显示">
+          <button className="ghost-button" type="button" onClick={expandAllCompletedGroups}>
+            全部展开
+          </button>
+          <button className="ghost-button" type="button" onClick={collapseAllCompletedGroups}>
+            全部收起
+          </button>
+        </div>
+      )}
       <div className="done-table">
         {completedGroups.length === 0 && <p className="empty-state table-empty">这一天暂无完成记录。</p>}
         {completedGroups.map((group) => {
+          const hasChildren = group.children.length > 0;
+          const isExpanded = isCompletedGroupExpanded(group);
           return (
             <div className="done-group" key={group.parent.id}>
               <div className="done-row done-parent">
+                {hasChildren ? (
+                  <button
+                    className={isExpanded ? 'tree-toggle expanded' : 'tree-toggle'}
+                    type="button"
+                    aria-label={`${isExpanded ? '收起' : '展开'} ${group.parent.title} 的子任务`}
+                    aria-expanded={isExpanded}
+                    title={isExpanded ? '收起子任务' : '展开子任务'}
+                    onClick={() => toggleCompletedGroup(group.parent.id)}
+                  >
+                    <ChevronRight size={17} aria-hidden="true" />
+                  </button>
+                ) : (
+                  <span className="tree-toggle-spacer" aria-hidden="true" />
+                )}
                 <CheckCircle2 size={18} />
                 <strong>{group.parent.title}</strong>
-                <CompletedStatusSelect todo={group.parent} onUpdateTodo={onUpdateTodo} />
+                <CompletedStatusSelect todo={group.parent} typeTags={data.typeTags} onUpdateTodo={onUpdateTodo} onCompletionBlocked={setCompletionTagDialogTodo} />
                 <TypeTagBadges todo={group.parent} typeTags={data.typeTags} />
                 <span>{group.parent.pomodoroCount} 个番茄</span>
                 <span>{group.parentCompletedOnDate ? completedTime(group.parent) : '-'}</span>
               </div>
-              {group.children.map((child) => (
+              {hasChildren && isExpanded && group.children.map((child) => (
                 <div className="done-row done-child" key={child.id}>
+                  <span className="tree-toggle-spacer" aria-hidden="true" />
                   <span className="branch-mark">└</span>
                   <strong>{child.title}</strong>
-                  <CompletedStatusSelect todo={child} onUpdateTodo={onUpdateTodo} />
+                  <CompletedStatusSelect todo={child} typeTags={data.typeTags} onUpdateTodo={onUpdateTodo} onCompletionBlocked={setCompletionTagDialogTodo} />
                   <TypeTagBadges todo={child} typeTags={data.typeTags} />
                   <span>{child.pomodoroCount} 个番茄</span>
                   <span>{completedTime(child)}</span>
@@ -1259,6 +1488,16 @@ function CompletedTodosPage({
         每日自我反思
         <textarea value={reflection} onChange={(event) => onSaveReflection(date, event.target.value)} />
       </label>
+      {completionTagDialogTodo && (
+        <CompletionTagDialog
+          todoTitle={completionTagDialogTodo.title}
+          onClose={() => setCompletionTagDialogTodo(null)}
+          onConfirm={() => {
+            onOpenTodoTags(completionTagDialogTodo.id);
+            setCompletionTagDialogTodo(null);
+          }}
+        />
+      )}
     </section>
   );
 }
@@ -1307,17 +1546,28 @@ function CompletedTypeChart({ shares }: { shares: TypeTagShare[] }) {
 
 function CompletedStatusSelect({
   todo,
-  onUpdateTodo
+  typeTags,
+  onUpdateTodo,
+  onCompletionBlocked
 }: {
   todo: Todo;
+  typeTags: TypeTagView[];
   onUpdateTodo: (todo: Todo, patch: Partial<Todo>) => void;
+  onCompletionBlocked: (todo: Todo) => void;
 }) {
   return (
     <select
       className={todo.status === 'completed' ? 'done-status-select completed' : 'done-status-select active'}
       aria-label={`${todo.title} 已完成页状态`}
       value={todo.status}
-      onChange={(event) => onUpdateTodo(todo, { status: event.target.value as TodoStatus })}
+      onChange={(event) => {
+        const nextStatus = event.target.value as TodoStatus;
+        if (nextStatus === 'completed' && !todo.typeTagIds.some((tagId) => typeTags.some((tag) => tag.id === tagId))) {
+          onCompletionBlocked(todo);
+          return;
+        }
+        onUpdateTodo(todo, { status: nextStatus });
+      }}
     >
       <option value="notStarted">未开始</option>
       <option value="active">进行中</option>
@@ -1343,6 +1593,7 @@ function WeeklySummaryPage({
   const reflection = data.weeklyReflections.find((item) => item.weekStart === weekStart)?.content ?? '';
   const dayLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
   const maxDailyCompleted = Math.max(...summary.dailyCompletion.map((item) => item.completedCount), 1);
+  const weeklyTodoTree = buildWeeklyTodoTree(data.todos, summary.completedTodos);
 
   function moveWeek(offset: number) {
     const next = new Date(`${weekStart}T12:00:00`);
@@ -1404,13 +1655,8 @@ function WeeklySummaryPage({
           <p className="empty-state">这一周还没有完成待办。</p>
         ) : (
           <div className="weekly-task-list">
-            {summary.completedTodos.map((todo) => (
-              <div className="weekly-task-item" key={todo.id}>
-                <CheckCircle2 size={17} aria-hidden="true" />
-                <strong>{todo.title}</strong>
-                <span>{todo.pomodoroCount} 个番茄</span>
-                <time dateTime={todo.completedAt ?? undefined}>{todo.completedAt?.slice(0, 10)}</time>
-              </div>
+            {weeklyTodoTree.map((node) => (
+              <WeeklyTodoTreeItem key={node.todo.id} node={node} />
             ))}
           </div>
         )}
@@ -1426,6 +1672,25 @@ function WeeklySummaryPage({
         />
       </label>
     </section>
+  );
+}
+
+function WeeklyTodoTreeItem({ node, depth = 0 }: { node: WeeklyTodoNode; depth?: number }) {
+  const isIncompleteParent = node.children.length > 0 && node.todo.status !== 'completed';
+
+  return (
+    <>
+      <div className={node.completedThisWeek ? 'weekly-task-item completed' : 'weekly-task-item parent'} style={{ paddingLeft: `${depth * 22}px` }}>
+        {node.completedThisWeek ? <CheckCircle2 size={17} aria-hidden="true" /> : <span className="weekly-tree-branch">└</span>}
+        <strong>{node.todo.title}</strong>
+        {isIncompleteParent && <em className="weekly-parent-status">进行中</em>}
+        {node.completedThisWeek && <span>{node.todo.pomodoroCount} 个番茄</span>}
+        {node.completedThisWeek && <time dateTime={node.todo.completedAt ?? undefined}>{node.todo.completedAt?.slice(0, 10)}</time>}
+      </div>
+      {node.children.map((child) => (
+        <WeeklyTodoTreeItem key={child.todo.id} node={child} depth={depth + 1} />
+      ))}
+    </>
   );
 }
 

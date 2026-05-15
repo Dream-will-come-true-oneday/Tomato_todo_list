@@ -1,5 +1,5 @@
 import { createDefaultAppData } from './defaultData';
-import type { AppData, DailyPomodoroPlan, TimerPreset, Todo, TodoStatus, WeeklyReflection } from './types';
+import type { AppData, DailyPomodoroPlan, TimerPreset, Todo, TodoStatus, TodoTypeTag, WeeklyReflection } from './types';
 
 export const STORAGE_KEY = 'pomodoro-todo-app:v1';
 
@@ -92,27 +92,72 @@ function migrateWeeklyReflections(value: unknown): WeeklyReflection[] {
     }));
 }
 
+function migrateTypeTags(value: unknown): TodoTypeTag[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .filter((tag): tag is Record<string, unknown> => isRecord(tag))
+    .filter((tag) => typeof tag.id === 'string' && typeof tag.name === 'string' && typeof tag.color === 'string')
+    .map((tag) => ({
+      id: tag.id as string,
+      name: tag.name as string,
+      color: tag.color as string,
+      createdAt: typeof tag.createdAt === 'string' ? tag.createdAt : new Date().toISOString()
+    }));
+}
+
+function ensureCompletedTodosHaveTypeTag(todos: Todo[], typeTags: TodoTypeTag[]) {
+  const validTagIds = new Set(typeTags.map((tag) => tag.id));
+  const needsItTag = todos.some(
+    (todo) => todo.status === 'completed' && !todo.typeTagIds.some((tagId) => validTagIds.has(tagId))
+  );
+  if (!needsItTag) return { todos, typeTags };
+
+  const itTag = typeTags.find((tag) => tag.name === 'IT') ?? {
+    id: 'tag-it',
+    name: 'IT',
+    color: '#3f5e77',
+    createdAt: new Date().toISOString()
+  };
+  const nextTypeTags = typeTags.some((tag) => tag.id === itTag.id) ? typeTags : [...typeTags, itTag];
+  const nextValidTagIds = new Set(nextTypeTags.map((tag) => tag.id));
+
+  return {
+    typeTags: nextTypeTags,
+    todos: todos.map((todo) => {
+      if (todo.status !== 'completed') return todo;
+      const validIds = [...new Set(todo.typeTagIds.filter((tagId) => nextValidTagIds.has(tagId)))];
+      return validIds.length > 0 ? { ...todo, typeTagIds: validIds } : { ...todo, typeTagIds: [itTag.id] };
+    })
+  };
+}
+
 function migrateAppData(value: StoredAppData): AppData | null {
   if (
     !Array.isArray(value.presets) ||
-    !Array.isArray(value.todos) ||
-    !Array.isArray(value.pomodoroRecords) ||
-    typeof value.activePresetId !== 'string'
+    !Array.isArray(value.todos)
   ) {
     return null;
   }
 
+  const presets = value.presets.map(migratePreset);
+  const typeTags = migrateTypeTags(value.typeTags);
+  const completedTagMigration = ensureCompletedTodosHaveTypeTag(value.todos.map(migrateTodo), typeTags);
+
   return {
-    version: 3,
-    presets: value.presets.map(migratePreset),
-    todos: value.todos.map(migrateTodo),
-    typeTags: Array.isArray(value.typeTags) ? value.typeTags : [],
+    version: 4,
+    presets,
+    todos: completedTagMigration.todos,
+    typeTags: completedTagMigration.typeTags,
     reflections: Array.isArray(value.reflections) ? value.reflections : [],
     weeklyReflections: migrateWeeklyReflections(value.weeklyReflections),
     backlogItems: Array.isArray(value.backlogItems) ? value.backlogItems : [],
-    pomodoroRecords: value.pomodoroRecords,
+    pomodoroRecords: Array.isArray(value.pomodoroRecords) ? value.pomodoroRecords : [],
     todayPlans: migrateTodayPlans(value.todayPlans),
-    activePresetId: value.activePresetId
+    activePresetId:
+      typeof value.activePresetId === 'string' && presets.some((preset) => preset.id === value.activePresetId)
+        ? value.activePresetId
+        : presets[0]?.id ?? ''
   };
 }
 

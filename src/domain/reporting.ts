@@ -25,7 +25,11 @@ export type WeekSummary = {
   topTypeName: string | null;
 };
 
-const UNCLASSIFIED_TAG = { id: 'unclassified', name: '未分类', color: '#74634f' };
+export type WeeklyTodoNode = {
+  todo: Todo;
+  completedThisWeek: boolean;
+  children: WeeklyTodoNode[];
+};
 
 function dateFromKey(dateKey: string) {
   return new Date(`${dateKey}T12:00:00`);
@@ -57,14 +61,8 @@ export function getCompletedTypeTagShares(
   for (const todo of todos.filter((item) => item.status === 'completed')) {
     const uniqueTagIds = [...new Set(todo.typeTagIds)];
     const knownTagIds = uniqueTagIds.filter((tagId) => knownTags.has(tagId));
-    const hasUnknownTag = uniqueTagIds.some((tagId) => !knownTags.has(tagId));
-
     for (const tagId of knownTagIds) {
       counts.set(tagId, (counts.get(tagId) ?? 0) + 1);
-    }
-
-    if (knownTagIds.length === 0 || hasUnknownTag) {
-      counts.set(UNCLASSIFIED_TAG.id, (counts.get(UNCLASSIFIED_TAG.id) ?? 0) + 1);
     }
   }
 
@@ -72,11 +70,46 @@ export function getCompletedTypeTagShares(
   if (total === 0) return [];
 
   return [...counts.entries()]
-    .map(([id, count]) => {
-      const tag = knownTags.get(id) ?? UNCLASSIFIED_TAG;
-      return { ...tag, count, percentage: Math.round((count / total) * 100) };
-    })
+    .map(([id, count]) => ({ ...knownTags.get(id)!, count, percentage: Math.round((count / total) * 100) }))
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+}
+
+export function buildWeeklyTodoTree(todos: Todo[], completedTodos: Todo[]): WeeklyTodoNode[] {
+  const todoById = new Map(todos.map((todo) => [todo.id, todo]));
+  const completedIds = new Set(completedTodos.map((todo) => todo.id));
+  const includedIds = new Set(completedIds);
+
+  for (const completedTodo of completedTodos) {
+    const visited = new Set<string>();
+    let parentId = completedTodo.parentId;
+    while (parentId && !visited.has(parentId)) {
+      visited.add(parentId);
+      const parent = todoById.get(parentId);
+      if (!parent) break;
+      includedIds.add(parent.id);
+      parentId = parent.parentId;
+    }
+  }
+
+  const nodeById = new Map<string, WeeklyTodoNode>();
+  for (const todoId of includedIds) {
+    const todo = todoById.get(todoId);
+    if (todo) nodeById.set(todoId, { todo, completedThisWeek: completedIds.has(todoId), children: [] });
+  }
+
+  const roots: WeeklyTodoNode[] = [];
+  for (const node of nodeById.values()) {
+    const parent = node.todo.parentId ? nodeById.get(node.todo.parentId) : undefined;
+    if (parent) parent.children.push(node);
+    else roots.push(node);
+  }
+
+  const sortNodes = (nodes: WeeklyTodoNode[]) => {
+    nodes.sort((a, b) => a.todo.createdAt.localeCompare(b.todo.createdAt) || a.todo.title.localeCompare(b.todo.title));
+    nodes.forEach((node) => sortNodes(node.children));
+  };
+  sortNodes(roots);
+  return roots;
 }
 
 export function getWeekSummary(

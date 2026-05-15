@@ -78,7 +78,7 @@ export type DailyPomodoroPlan = {
 };
 
 export type AppData = {
-  version: 3;
+  version: 4;
   presets: TimerPreset[];
   todos: Todo[];
   typeTags: TodoTypeTag[];

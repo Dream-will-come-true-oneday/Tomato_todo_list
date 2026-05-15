@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { createDefaultAppData } from './defaultData';
 
 describe('createDefaultAppData', () => {
-  it('creates v3 app data with timer presets and planning collections', () => {
+  it('creates v4 app data with timer presets and planning collections', () => {
     const data = createDefaultAppData();
 
-    expect(data.version).toBe(3);
+    expect(data.version).toBe(4);
     expect(data.presets.length).toBeGreaterThanOrEqual(4);
     expect(data.activePresetId).toBe(data.presets[0].id);
     expect(data.presets[0]).toMatchObject({

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createDefaultTodo } from './defaultData';
-import { getCompletedTypeTagShares, getWeekDateKeys, getWeekSummary } from './reporting';
+import { buildWeeklyTodoTree, getCompletedTypeTagShares, getWeekDateKeys, getWeekSummary } from './reporting';
 
 describe('reporting', () => {
   it('uses Monday through Sunday for a natural week', () => {
@@ -15,7 +15,7 @@ describe('reporting', () => {
     ]);
   });
 
-  it('counts every known completed tag and places untagged tasks in the fallback group', () => {
+  it('counts only known tags from completed tasks', () => {
     const tags = [
       { id: 'study', name: '学习', color: '#315f4d' },
       { id: 'work', name: '事务', color: '#9b2f25' }
@@ -29,10 +29,10 @@ describe('reporting', () => {
     expect(getCompletedTypeTagShares(todos, tags)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: 'study', count: 1 }),
-        expect.objectContaining({ id: 'work', count: 1 }),
-        expect.objectContaining({ id: 'unclassified', count: 1 })
+        expect.objectContaining({ id: 'work', count: 1 })
       ])
     );
+    expect(getCompletedTypeTagShares(todos, tags).some((share) => share.name === '未分类')).toBe(false);
   });
 
   it('summarizes only completed tasks and Pomodoros inside the selected week', () => {
@@ -50,5 +50,20 @@ describe('reporting', () => {
     expect(summary.completedPomodoroCount).toBe(1);
     expect(summary.focusMinutes).toBe(25);
     expect(summary.dailyCompletion[2].completedCount).toBe(1);
+  });
+
+  it('keeps the full parent chain for completed weekly tasks', () => {
+    const root = createDefaultTodo('根任务', { status: 'active' });
+    const parent = createDefaultTodo('父任务', { parentId: root.id, status: 'notStarted' });
+    const child = {
+      ...createDefaultTodo('完成子任务', { parentId: parent.id, status: 'completed' }),
+      completedAt: '2026-07-22T09:00:00.000Z'
+    };
+
+    const tree = buildWeeklyTodoTree([root, parent, child], [child]);
+    expect(tree[0].todo.id).toBe(root.id);
+    expect(tree[0].children[0].todo.id).toBe(parent.id);
+    expect(tree[0].children[0].children[0].todo.id).toBe(child.id);
+    expect(tree[0].children[0].children[0].completedThisWeek).toBe(true);
   });
 });
