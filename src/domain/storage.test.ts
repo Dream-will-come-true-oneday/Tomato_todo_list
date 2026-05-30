@@ -3,26 +3,26 @@ import { createDefaultAppData } from './defaultData';
 import { loadAppData, saveAppData } from './storage';
 
 describe('storage', () => {
-  it('loads v4 defaults when storage is empty', () => {
+  it('loads v6 defaults when storage is empty', () => {
     const storage = new Map<string, string>();
     const getItem = vi.fn((key: string) => storage.get(key) ?? null);
 
     const result = loadAppData({ getItem } as unknown as Storage);
 
-    expect(result.data.version).toBe(4);
+    expect(result.data.version).toBe(6);
     expect(result.recovered).toBe(false);
   });
 
-  it('recovers to v4 defaults when stored JSON is invalid', () => {
+  it('recovers to v6 defaults when stored JSON is invalid', () => {
     const getItem = vi.fn(() => '{bad json');
 
     const result = loadAppData({ getItem } as unknown as Storage);
 
-    expect(result.data.version).toBe(4);
+    expect(result.data.version).toBe(6);
     expect(result.recovered).toBe(true);
   });
 
-  it('migrates old todos by filling new v4 fields', () => {
+  it('migrates old todos by filling current fields', () => {
     const base = createDefaultAppData();
     const stored = {
       ...base,
@@ -53,15 +53,16 @@ describe('storage', () => {
     const result = loadAppData({ getItem } as unknown as Storage);
 
     expect(result.recovered).toBe(false);
-    expect(result.data.version).toBe(4);
+    expect(result.data.version).toBe(6);
     expect(result.data.todos[0]).toMatchObject({
       parentId: null,
       term: 'short',
       urgencyTags: [],
       typeTagIds: [],
-      startAt: '2026-07-17',
-      dueAt: '2026-07-17'
+      startAt: '2026-07-17T08:00:00.000Z',
+      dueAt: '2026-07-17T18:00:00.000Z'
     });
+    expect(result.data.todos[0].checkInDates).toEqual([]);
     expect(result.data.presets[0].soundEnabled).toBe(true);
     expect(result.data.todayPlans).toEqual({});
     expect(result.data.weeklyReflections).toEqual([]);
@@ -103,6 +104,46 @@ describe('storage', () => {
     expect(result.data.todos).toHaveLength(base.todos.length);
     expect(result.data.pomodoroRecords).toEqual([]);
     expect(result.data.activePresetId).toBe(base.presets[0].id);
+  });
+
+  it('migrates and cleans long-term todo check-in dates', () => {
+    const base = createDefaultAppData();
+    const stored = {
+      ...base,
+      version: 5,
+      todos: [
+        {
+          ...base.todos[0],
+          term: 'long',
+          checkInDates: ['2026-07-26', '2026-07-26', 'invalid', 7]
+        }
+      ]
+    };
+
+    const result = loadAppData({ getItem: vi.fn(() => JSON.stringify(stored)) } as unknown as Storage);
+
+    expect(result.data.version).toBe(6);
+    expect(result.data.todos[0].checkInDates).toEqual(['2026-07-26']);
+  });
+
+  it('migrates legacy inspiration completion state and assigns the legacy tag', () => {
+    const base = createDefaultAppData();
+    const stored = {
+      ...base,
+      version: 4,
+      inspirationTags: undefined,
+      backlogItems: [
+        { id: 'idea-done', title: '旧完成灵感', isPlanned: true, createdAt: '2026-07-26T08:00:00.000Z', updatedAt: '2026-07-26T08:00:00.000Z' },
+        { id: 'idea-open', title: '旧待分类灵感', isPlanned: false, createdAt: '2026-07-26T08:00:00.000Z', updatedAt: '2026-07-26T08:00:00.000Z' }
+      ]
+    };
+
+    const result = loadAppData({ getItem: vi.fn(() => JSON.stringify(stored)) } as unknown as Storage);
+    const legacyTag = result.data.inspirationTags.find((tag) => tag.name === '旧灵感');
+
+    expect(result.data.version).toBe(6);
+    expect(result.data.backlogItems.find((item) => item.id === 'idea-done')).toMatchObject({ status: 'completed', tagId: legacyTag?.id });
+    expect(result.data.backlogItems.find((item) => item.id === 'idea-open')).toMatchObject({ status: 'active', tagId: null });
   });
 
   it('saves app data as JSON', () => {

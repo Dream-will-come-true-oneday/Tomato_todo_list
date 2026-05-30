@@ -29,6 +29,16 @@ function parseDueDate(value: string) {
   return due;
 }
 
+export function isCompletedLate(todo: Todo) {
+  if (todo.status !== 'completed' || !todo.dueAt || !todo.completedAt) return false;
+
+  const due = parseDueDate(todo.dueAt);
+  const completedAt = new Date(todo.completedAt);
+  if (Number.isNaN(due.getTime()) || Number.isNaN(completedAt.getTime())) return false;
+
+  return completedAt.getTime() > due.getTime();
+}
+
 function parseStartDate(value: string) {
   return DATE_ONLY_PATTERN.test(value) ? parseLocalDateOnly(value) : new Date(value);
 }

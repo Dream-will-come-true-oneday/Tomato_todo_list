@@ -1,7 +1,7 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
-import { createDefaultAppData, createDefaultTodo } from './domain/defaultData';
+import { createBacklogItem, createDefaultAppData, createDefaultTodo } from './domain/defaultData';
 import { STORAGE_KEY } from './domain/storage';
 import { toDateKey } from './domain/todoFilters';
 
@@ -171,6 +171,56 @@ describe('App workflows', () => {
     expect(screen.getByText('3 个番茄')).toBeTruthy();
   });
 
+  it('checks in long-term parent and child todos independently and allows undoing today', () => {
+    const data = createDefaultAppData();
+    const parent = createDefaultTodo('长期父任务', { term: 'long', status: 'active' });
+    const child = createDefaultTodo('长期子任务', { parentId: parent.id, term: 'long', status: 'active' });
+    data.todos = [parent, child];
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: '待办事项' }));
+    fireEvent.click(screen.getByRole('button', { name: '未完成待办' }));
+
+    const parentRow = screen.getByDisplayValue('长期父任务').closest('.todo-row');
+    const childRow = screen.getByDisplayValue('长期子任务').closest('.todo-row');
+    expect(parentRow).not.toBeNull();
+    expect(childRow).not.toBeNull();
+
+    fireEvent.click(within(parentRow as HTMLElement).getByRole('button', { name: '长期父任务 今日打卡' }));
+    expect(within(parentRow as HTMLElement).getByText('累计 1 次')).toBeTruthy();
+    expect(within(childRow as HTMLElement).getByText('累计 0 次')).toBeTruthy();
+
+    fireEvent.click(within(parentRow as HTMLElement).getByRole('button', { name: '撤销长期父任务 今日打卡' }));
+    expect(within(parentRow as HTMLElement).getByText('累计 0 次')).toBeTruthy();
+  });
+
+  it('shows saved check-in counts for completed long-term todos only', () => {
+    const today = toDateKey();
+    const data = createDefaultAppData();
+    data.todos = [
+      {
+        ...createDefaultTodo('长期已完成', { term: 'long', status: 'completed', typeTagIds: [data.typeTags[0].id] }),
+        completedAt: `${today}T09:00:00.000Z`,
+        checkInDates: ['2026-07-25', '2026-07-26']
+      },
+      {
+        ...createDefaultTodo('短期已完成', { status: 'completed', typeTagIds: [data.typeTags[0].id] }),
+        completedAt: `${today}T10:00:00.000Z`
+      }
+    ];
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: '待办事项' }));
+    fireEvent.click(screen.getByRole('button', { name: /已完成待办/ }));
+
+    const doneTable = screen.getByText('长期已完成').closest('.done-table');
+    expect(doneTable).not.toBeNull();
+    expect(within(doneTable as HTMLElement).getByText('打卡 2 次')).toBeTruthy();
+    expect(within(doneTable as HTMLElement).queryByRole('button', { name: /今日打卡/ })).toBeNull();
+  });
+
   it('shows completed child todos under their unfinished parent with an active parent marker', () => {
     const today = toDateKey();
     const data = createDefaultAppData();
@@ -290,5 +340,106 @@ describe('App workflows', () => {
     expect(screen.getByText('完成前请选择类型标签')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '前往添加标签' }));
     expect(document.activeElement?.getAttribute('aria-label')).toBe(`需要标签 类型标签 ${data.typeTags[0].name}`);
+  });
+
+  it('marks late completed todos in the selected completion date list', () => {
+    const today = toDateKey();
+    const data = createDefaultAppData();
+    data.todos = [
+      {
+        ...createDefaultTodo('Late task', { status: 'completed' }),
+        dueAt: `${today}T08:00:00.000Z`,
+        completedAt: `${today}T09:00:00.000Z`
+      },
+      {
+        ...createDefaultTodo('On-time task', { status: 'completed' }),
+        dueAt: `${today}T10:00:00.000Z`,
+        completedAt: `${today}T09:00:00.000Z`
+      }
+    ];
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+
+    render(<App />);
+    fireEvent.click(document.querySelector('.hero-nav button:last-child') as HTMLButtonElement);
+    fireEvent.click(document.querySelector('.hub-action-completed') as HTMLButtonElement);
+
+    expect(screen.getByText('逾期完成')).toBeTruthy();
+    expect(screen.getByText('Late task')).toBeTruthy();
+    expect(screen.getByText('On-time task')).toBeTruthy();
+  });
+
+  it('plays fountain feedback for added and completed inspiration items', () => {
+    vi.useFakeTimers();
+    const originalRequestAnimationFrame = window.requestAnimationFrame;
+    window.requestAnimationFrame = (callback) => window.setTimeout(() => callback(Date.now()), 0);
+
+    try {
+      render(<App />);
+      fireEvent.click(document.querySelector('.hero-nav button:last-child') as HTMLButtonElement);
+      fireEvent.click(document.querySelector('.hub-action-backlog') as HTMLButtonElement);
+
+      const fountain = screen.getByTestId('inspiration-fountain');
+      expect(fountain.className).not.toContain('animation-');
+
+      fireEvent.change(screen.getByLabelText('新增灵感'), { target: { value: 'Read about fountain design' } });
+      fireEvent.click(screen.getByRole('button', { name: '新增' }));
+      act(() => {
+        vi.advanceTimersByTime(16);
+      });
+      expect(fountain.className).toContain('animation-envelope');
+
+      act(() => {
+        vi.advanceTimersByTime(1250);
+      });
+      expect(fountain.className).not.toContain('animation-');
+
+      fireEvent.change(screen.getByLabelText('新灵感标签名'), { target: { value: '研究' } });
+      fireEvent.click(screen.getByRole('button', { name: '加标签' }));
+      const tagSelect = screen.getByLabelText('Read about fountain design 灵感标签') as HTMLSelectElement;
+      fireEvent.change(tagSelect, { target: { value: tagSelect.options[1].value } });
+      fireEvent.click(screen.getByRole('button', { name: '完成灵感 Read about fountain design' }));
+      act(() => {
+        vi.advanceTimersByTime(16);
+      });
+      expect(fountain.className).toContain('animation-glow');
+
+      act(() => {
+        vi.advanceTimersByTime(1250);
+      });
+      expect(fountain.className).not.toContain('animation-');
+    } finally {
+      window.requestAnimationFrame = originalRequestAnimationFrame;
+      vi.useRealTimers();
+    }
+  });
+
+  it('archives inspirations by tag and persists Markdown completion details', () => {
+    const data = createDefaultAppData();
+    const tag = { id: 'inspiration-tag-research', name: '研究', color: '#315f4d', createdAt: '2026-07-26T08:00:00.000Z' };
+    const completedIdea = {
+      ...createBacklogItem('完成架构草图'),
+      status: 'completed' as const,
+      tagId: tag.id,
+      completionDetails: ''
+    };
+    data.inspirationTags = [tag];
+    data.backlogItems = [completedIdea];
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+
+    render(<App />);
+    fireEvent.click(document.querySelector('.hero-nav button:last-child') as HTMLButtonElement);
+    fireEvent.click(document.querySelector('.hub-action-backlog') as HTMLButtonElement);
+    fireEvent.click(screen.getByRole('button', { name: '已完成灵感' }));
+
+    expect(screen.getByRole('heading', { name: '已完成灵感' })).toBeTruthy();
+    expect(screen.getByText('研究')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '查看详情' }));
+    fireEvent.change(screen.getByLabelText('完成架构草图 完成细节'), { target: { value: '# 方案\n\n- 完成核心流程' } });
+    fireEvent.click(screen.getByRole('button', { name: '预览' }));
+    expect(screen.getByRole('heading', { name: '方案' })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '重新打开' }));
+    fireEvent.click(screen.getByRole('button', { name: '返回灵感池' }));
+    expect(screen.getByDisplayValue('完成架构草图')).toBeTruthy();
   });
 });

@@ -1,18 +1,33 @@
 import { Pause, Play, RotateCcw, SkipForward } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { getNextPhase, getPhaseDurationSeconds } from '../domain/pomodoro';
 import type { PomodoroCompletionType, TimerPhase, TimerPreset, Todo } from '../domain/types';
 
-type PhaseCompletion = {
+export type PhaseCompletion = {
   finishedPhase: TimerPhase;
   nextPhase: TimerPhase;
   message: string;
   actionLabel: string;
 };
 
+export type TimerSnapshot = {
+  phase: TimerPhase;
+  remainingSeconds: number;
+  completedFocusCount: number;
+  phaseCompletion: PhaseCompletion | null;
+  sessionStartedAt: string | null;
+  sessionPlannedSeconds: number;
+  sessionTodoId: string | null;
+};
+
+export type TimerPanelHandle = {
+  pauseAndCapture: () => TimerSnapshot;
+};
+
 type Props = {
   preset: TimerPreset;
   selectedTodo: Todo | null;
+  snapshot?: TimerSnapshot | null;
   onSessionComplete: (payload: {
     todoId: string | null;
     startedAt: Date;
@@ -46,17 +61,21 @@ function formatTime(seconds: number) {
   return `${mins}:${secs}`;
 }
 
-export default function TimerPanel({ preset, selectedTodo, onSessionComplete }: Props) {
-  const [phase, setPhase] = useState<TimerPhase>('focus');
-  const [remainingSeconds, setRemainingSeconds] = useState(() => getPhaseDurationSeconds('focus', preset));
+const TimerPanel = forwardRef<TimerPanelHandle, Props>(function TimerPanel({ preset, selectedTodo, snapshot = null, onSessionComplete }, ref) {
+  const [phase, setPhase] = useState<TimerPhase>(() => snapshot?.phase ?? 'focus');
+  const [remainingSeconds, setRemainingSeconds] = useState(
+    () => snapshot?.remainingSeconds ?? getPhaseDurationSeconds('focus', preset)
+  );
   const [isRunning, setIsRunning] = useState(false);
-  const [completedFocusCount, setCompletedFocusCount] = useState(0);
-  const [phaseCompletion, setPhaseCompletion] = useState<PhaseCompletion | null>(null);
-  const sessionStartedAt = useRef<Date | null>(null);
-  const sessionPlannedSeconds = useRef(remainingSeconds);
+  const [completedFocusCount, setCompletedFocusCount] = useState(() => snapshot?.completedFocusCount ?? 0);
+  const [phaseCompletion, setPhaseCompletion] = useState<PhaseCompletion | null>(() => snapshot?.phaseCompletion ?? null);
+  const sessionStartedAt = useRef<Date | null>(snapshot?.sessionStartedAt ? new Date(snapshot.sessionStartedAt) : null);
+  const sessionPlannedSeconds = useRef(snapshot?.sessionPlannedSeconds ?? remainingSeconds);
+  const sessionTodoId = useRef<string | null>(snapshot?.sessionTodoId ?? null);
   const deadlineAtMs = useRef<number | null>(null);
   const isFinishingPhase = useRef(false);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const presetIdRef = useRef(preset.id);
 
   const totalSeconds = useMemo(() => getPhaseDurationSeconds(phase, preset), [phase, preset]);
   const progress = totalSeconds === 0 ? 0 : 1 - remainingSeconds / totalSeconds;
@@ -122,20 +141,24 @@ export default function TimerPanel({ preset, selectedTodo, onSessionComplete }: 
       setRemainingSeconds(nextSeconds);
       sessionStartedAt.current = shouldStart ? new Date() : null;
       sessionPlannedSeconds.current = nextSeconds;
+      sessionTodoId.current = shouldStart && nextPhase === 'focus' ? selectedTodo?.id ?? null : null;
       deadlineAtMs.current = shouldStart ? Date.now() + nextSeconds * 1000 : null;
       if (shouldStart) prepareReminderSound();
       isFinishingPhase.current = false;
       setIsRunning(shouldStart);
     },
-    [preset]
+    [preset, selectedTodo?.id]
   );
 
   useEffect(() => {
+    if (presetIdRef.current === preset.id) return;
+    presetIdRef.current = preset.id;
     setIsRunning(false);
     setPhase('focus');
     setRemainingSeconds(getPhaseDurationSeconds('focus', preset));
     setPhaseCompletion(null);
     sessionStartedAt.current = null;
+    sessionTodoId.current = null;
     deadlineAtMs.current = null;
     isFinishingPhase.current = false;
   }, [preset.id]);
@@ -155,6 +178,7 @@ export default function TimerPanel({ preset, selectedTodo, onSessionComplete }: 
     if (!sessionStartedAt.current) {
       sessionStartedAt.current = new Date();
       sessionPlannedSeconds.current = remainingSeconds;
+      sessionTodoId.current = phase === 'focus' ? selectedTodo?.id ?? null : null;
     }
     deadlineAtMs.current = Date.now() + remainingSeconds * 1000;
     prepareReminderSound();
@@ -172,7 +196,7 @@ export default function TimerPanel({ preset, selectedTodo, onSessionComplete }: 
     const secondsLeft = getCurrentRemainingSeconds();
     if (phase === 'focus' && sessionStartedAt.current) {
       onSessionComplete({
-        todoId: selectedTodo?.id ?? null,
+        todoId: sessionTodoId.current,
         startedAt: sessionStartedAt.current,
         endedAt: new Date(),
         actualElapsedSeconds: sessionPlannedSeconds.current - secondsLeft,
@@ -182,6 +206,7 @@ export default function TimerPanel({ preset, selectedTodo, onSessionComplete }: 
     setIsRunning(false);
     setPhaseCompletion(null);
     sessionStartedAt.current = null;
+    sessionTodoId.current = null;
     deadlineAtMs.current = null;
     isFinishingPhase.current = false;
     setRemainingSeconds(getPhaseDurationSeconds(phase, preset));
@@ -200,7 +225,7 @@ export default function TimerPanel({ preset, selectedTodo, onSessionComplete }: 
       const endedAt = new Date();
       if (phase === 'focus' && sessionStartedAt.current) {
         onSessionComplete({
-          todoId: selectedTodo?.id ?? null,
+          todoId: sessionTodoId.current,
           startedAt: sessionStartedAt.current,
           endedAt,
           actualElapsedSeconds: sessionPlannedSeconds.current - secondsLeft,
@@ -213,6 +238,7 @@ export default function TimerPanel({ preset, selectedTodo, onSessionComplete }: 
       const nextPhase = phase === 'focus' ? getNextPhase(nextCompletedFocusCount, preset) : 'focus';
       setCompletedFocusCount(nextCompletedFocusCount);
       sessionStartedAt.current = null;
+      sessionTodoId.current = null;
 
       if (completionType === 'completed') {
         const message = reminderMessages[phase];
@@ -235,7 +261,29 @@ export default function TimerPanel({ preset, selectedTodo, onSessionComplete }: 
       setPhaseCompletion(null);
       moveToPhase(nextPhase, preset.autoStartNextPhase);
     },
-    [completedFocusCount, moveToPhase, onSessionComplete, phase, preset, selectedTodo?.id]
+    [completedFocusCount, moveToPhase, onSessionComplete, phase, preset]
+  );
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      pauseAndCapture() {
+        const nextRemainingSeconds = getCurrentRemainingSeconds();
+        deadlineAtMs.current = null;
+        setRemainingSeconds(nextRemainingSeconds);
+        setIsRunning(false);
+        return {
+          phase,
+          remainingSeconds: nextRemainingSeconds,
+          completedFocusCount,
+          phaseCompletion,
+          sessionStartedAt: sessionStartedAt.current?.toISOString() ?? null,
+          sessionPlannedSeconds: sessionPlannedSeconds.current,
+          sessionTodoId: sessionTodoId.current
+        };
+      }
+    }),
+    [completedFocusCount, phase, phaseCompletion, remainingSeconds]
   );
 
   useEffect(() => {
@@ -292,4 +340,6 @@ export default function TimerPanel({ preset, selectedTodo, onSessionComplete }: 
       </div>
     </section>
   );
-}
+});
+
+export default TimerPanel;

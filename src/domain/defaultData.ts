@@ -1,4 +1,4 @@
-import type { AppData, BacklogItem, TimerPreset, Todo, TodoTypeTag } from './types';
+import type { AppData, BacklogItem, InspirationTag, TimerPreset, Todo, TodoTypeTag } from './types';
 
 const nowIso = () => new Date().toISOString();
 
@@ -67,7 +67,8 @@ export function createDefaultTodo(
     createdAt,
     updatedAt: createdAt,
     completedAt: null,
-    pomodoroCount: 0
+    pomodoroCount: 0,
+    checkInDates: []
   };
 }
 
@@ -85,16 +86,27 @@ export function createBacklogItem(title: string): BacklogItem {
   return {
     id: `backlog-${crypto.randomUUID()}`,
     title,
-    isPlanned: false,
+    status: 'active',
+    tagId: null,
+    completionDetails: '',
     createdAt,
     updatedAt: createdAt
+  };
+}
+
+export function createInspirationTag(name: string, color = '#315f4d'): InspirationTag {
+  return {
+    id: `inspiration-tag-${crypto.randomUUID()}`,
+    name,
+    color,
+    createdAt: nowIso()
   };
 }
 
 export function createDefaultAppData(): AppData {
   const presets = DEFAULT_PRESETS.map((preset) => ({ ...preset }));
   return {
-    version: 4,
+    version: 6,
     presets,
     todos: [createDefaultTodo()],
     typeTags: [
@@ -114,6 +126,7 @@ export function createDefaultAppData(): AppData {
     reflections: [],
     weeklyReflections: [],
     backlogItems: [],
+    inspirationTags: [],
     pomodoroRecords: [],
     todayPlans: {},
     activePresetId: presets[0].id
