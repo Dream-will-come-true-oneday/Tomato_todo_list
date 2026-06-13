@@ -4,6 +4,7 @@ import type {
   BacklogItem,
   DailyReflection,
   DailyPomodoroPlan,
+  DailyScheduleSettings,
   PomodoroCompletionType,
   TimerPreset,
   Todo,
@@ -36,6 +37,8 @@ export type AppAction =
   | { type: 'deleteInspirationTag'; tagId: string }
   | { type: 'addTodayPlanTodo'; date: string; todoId: string }
   | { type: 'removeTodayPlanTodo'; date: string; todoId: string; isDefaultTodo: boolean }
+  | { type: 'updateDailySchedule'; schedule: DailyScheduleSettings }
+  | { type: 'replaceData'; data: AppData }
   | { type: 'setActivePreset'; presetId: string }
   | { type: 'upsertPreset'; preset: TimerPreset }
   | { type: 'deletePreset'; presetId: string };
@@ -85,11 +88,11 @@ function hasValidTypeTag(todo: Todo, typeTags: TodoTypeTag[]) {
   return todo.typeTagIds.some((tagId) => typeTags.some((tag) => tag.id === tagId));
 }
 
-function wouldLeaveCompletedTodoUntagged(data: AppData, tagId: string) {
+function wouldLeaveAchievementTodoUntagged(data: AppData, tagId: string) {
   const remainingTagIds = new Set(data.typeTags.filter((tag) => tag.id !== tagId).map((tag) => tag.id));
   return data.todos.some(
     (todo) =>
-      todo.status === 'completed' &&
+      (todo.status === 'completed' || todo.checkInDates.length > 0) &&
       todo.typeTagIds.includes(tagId) &&
       !todo.typeTagIds.some((todoTagId) => todoTagId !== tagId && remainingTagIds.has(todoTagId))
   );
@@ -134,6 +137,7 @@ export function appReducer(data: AppData, action: AppAction): AppData {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(action.date)) return data;
       const target = data.todos.find((todo) => todo.id === action.todoId);
       if (!target || target.term !== 'long' || target.status === 'completed' || target.status === 'archived') return data;
+      if (!hasValidTypeTag(target, data.typeTags)) return data;
       const hasCheckedIn = target.checkInDates.includes(action.date);
       const checkInDates = hasCheckedIn
         ? target.checkInDates.filter((date) => date !== action.date)
@@ -156,7 +160,7 @@ export function appReducer(data: AppData, action: AppAction): AppData {
       return { ...data, typeTags: [...data.typeTags, action.tag] };
     }
     case 'deleteTypeTag': {
-      if (wouldLeaveCompletedTodoUntagged(data, action.tagId)) return data;
+      if (wouldLeaveAchievementTodoUntagged(data, action.tagId)) return data;
       return {
         ...data,
         typeTags: data.typeTags.filter((tag) => tag.id !== action.tagId),
@@ -231,6 +235,12 @@ export function appReducer(data: AppData, action: AppAction): AppData {
           }
         }
       };
+    }
+    case 'updateDailySchedule': {
+      return { ...data, dailySchedule: action.schedule };
+    }
+    case 'replaceData': {
+      return action.data;
     }
     case 'setActivePreset': {
       return data.presets.some((preset) => preset.id === action.presetId)

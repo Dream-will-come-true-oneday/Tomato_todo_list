@@ -1,8 +1,11 @@
-import { createDefaultAppData } from './defaultData';
+import { createDefaultAppData, createDefaultDailySchedule } from './defaultData';
+import { isValidScheduleTime, sortScheduleItems } from './dailySchedule';
 import type {
   AppData,
   BacklogItem,
   DailyPomodoroPlan,
+  DailyScheduleItem,
+  DailyScheduleSettings,
   InspirationTag,
   TimerPreset,
   Todo,
@@ -12,10 +15,19 @@ import type {
 } from './types';
 
 export const STORAGE_KEY = 'pomodoro-todo-app:v1';
+const CURRENT_APP_DATA_VERSION = 8;
+const BACKUP_FORMAT = 'pomodoro-todo-app-backup';
 
 type LoadResult = {
   data: AppData;
   recovered: boolean;
+};
+
+export type AppDataExportEnvelope = {
+  format: typeof BACKUP_FORMAT;
+  version: number;
+  exportedAt: string;
+  data: AppData;
 };
 
 type StoredAppData = Partial<AppData> & {
@@ -61,7 +73,7 @@ function migrateTodo(todo: Partial<Todo>): Todo {
 function migratePreset(preset: Partial<TimerPreset>): TimerPreset {
   return {
     id: typeof preset.id === 'string' ? preset.id : `preset-${crypto.randomUUID()}`,
-    name: typeof preset.name === 'string' ? preset.name : '鐣寗',
+    name: typeof preset.name === 'string' ? preset.name : '番茄',
     focusMinutes: typeof preset.focusMinutes === 'number' ? preset.focusMinutes : 25,
     shortBreakMinutes: typeof preset.shortBreakMinutes === 'number' ? preset.shortBreakMinutes : 5,
     longBreakMinutes: typeof preset.longBreakMinutes === 'number' ? preset.longBreakMinutes : 15,
@@ -93,6 +105,49 @@ function migrateTodayPlans(value: unknown): Record<string, DailyPomodoroPlan> {
         ];
       })
   );
+}
+function migrateDailyScheduleItem(value: unknown, index: number): DailyScheduleItem | null {
+  if (!isRecord(value) || !isValidScheduleTime(value.startTime)) return null;
+  const title = typeof value.title === 'string' ? value.title.trim() : '';
+  if (!title) return null;
+
+  return {
+    id: typeof value.id === 'string' && value.id ? value.id : `schedule-imported-${index}-${crypto.randomUUID()}`,
+    startTime: value.startTime,
+    endTime: value.endTime === null || value.endTime === '' ? null : isValidScheduleTime(value.endTime) ? value.endTime : null,
+    title,
+    rule: typeof value.rule === 'string' ? value.rule : '',
+    enabled: typeof value.enabled === 'boolean' ? value.enabled : true
+  };
+}
+
+function migrateDailySchedule(value: unknown): DailyScheduleSettings {
+  const defaults = createDefaultDailySchedule();
+  if (!isRecord(value)) return defaults;
+
+  const sortedItems = Array.isArray(value.items)
+    ? sortScheduleItems(
+        value.items.map(migrateDailyScheduleItem).filter((item): item is DailyScheduleItem => item !== null)
+      )
+    : defaults.items;
+  const enabledStartTimes = new Set<string>();
+  const items = sortedItems.filter((item) => {
+    if (!item.enabled) return true;
+    if (enabledStartTimes.has(item.startTime)) return false;
+    enabledStartTimes.add(item.startTime);
+    return true;
+
+  });
+  return {
+    enabled: typeof value.enabled === 'boolean' ? value.enabled : defaults.enabled,
+    soundEnabled: typeof value.soundEnabled === 'boolean' ? value.soundEnabled : defaults.soundEnabled,
+    desktopNotificationEnabled:
+      typeof value.desktopNotificationEnabled === 'boolean'
+        ? value.desktopNotificationEnabled
+        : defaults.desktopNotificationEnabled,
+    autoLaunch: typeof value.autoLaunch === 'boolean' ? value.autoLaunch : defaults.autoLaunch,
+    items
+  };
 }
 
 function migrateWeeklyReflections(value: unknown): WeeklyReflection[] {
@@ -176,10 +231,12 @@ function ensureCompletedInspirationTags(items: BacklogItem[], tags: InspirationT
   };
 }
 
-function ensureCompletedTodosHaveTypeTag(todos: Todo[], typeTags: TodoTypeTag[]) {
+function ensureAchievementTodosHaveTypeTag(todos: Todo[], typeTags: TodoTypeTag[]) {
   const validTagIds = new Set(typeTags.map((tag) => tag.id));
   const needsItTag = todos.some(
-    (todo) => todo.status === 'completed' && !todo.typeTagIds.some((tagId) => validTagIds.has(tagId))
+    (todo) =>
+      (todo.status === 'completed' || todo.checkInDates.length > 0) &&
+      !todo.typeTagIds.some((tagId) => validTagIds.has(tagId))
   );
   if (!needsItTag) return { todos, typeTags };
 
@@ -195,7 +252,7 @@ function ensureCompletedTodosHaveTypeTag(todos: Todo[], typeTags: TodoTypeTag[])
   return {
     typeTags: nextTypeTags,
     todos: todos.map((todo) => {
-      if (todo.status !== 'completed') return todo;
+      if (todo.status !== 'completed' && todo.checkInDates.length === 0) return todo;
       const validIds = [...new Set(todo.typeTagIds.filter((tagId) => nextValidTagIds.has(tagId)))];
       return validIds.length > 0 ? { ...todo, typeTagIds: validIds } : { ...todo, typeTagIds: [itTag.id] };
     })
@@ -204,6 +261,7 @@ function ensureCompletedTodosHaveTypeTag(todos: Todo[], typeTags: TodoTypeTag[])
 
 function migrateAppData(value: StoredAppData): AppData | null {
   if (
+    (value.version !== undefined && !isSupportedAppDataVersion(value.version)) ||
     !Array.isArray(value.presets) ||
     !Array.isArray(value.todos)
   ) {
@@ -212,13 +270,13 @@ function migrateAppData(value: StoredAppData): AppData | null {
 
   const presets = value.presets.map(migratePreset);
   const typeTags = migrateTypeTags(value.typeTags);
-  const completedTagMigration = ensureCompletedTodosHaveTypeTag(value.todos.map(migrateTodo), typeTags);
+  const completedTagMigration = ensureAchievementTodosHaveTypeTag(value.todos.map(migrateTodo), typeTags);
   const inspirationTags = migrateInspirationTags(value.inspirationTags);
   const backlogItems = migrateBacklogItems(value.backlogItems, new Set(inspirationTags.map((tag) => tag.id)));
   const completedInspirationMigration = ensureCompletedInspirationTags(backlogItems, inspirationTags);
 
   return {
-    version: 6,
+    version: 8,
     presets,
     todos: completedTagMigration.todos,
     typeTags: completedTagMigration.typeTags,
@@ -228,6 +286,7 @@ function migrateAppData(value: StoredAppData): AppData | null {
     inspirationTags: completedInspirationMigration.tags,
     pomodoroRecords: Array.isArray(value.pomodoroRecords) ? value.pomodoroRecords : [],
     todayPlans: migrateTodayPlans(value.todayPlans),
+    dailySchedule: migrateDailySchedule(value.dailySchedule),
     activePresetId:
       typeof value.activePresetId === 'string' && presets.some((preset) => preset.id === value.activePresetId)
         ? value.activePresetId
@@ -235,6 +294,59 @@ function migrateAppData(value: StoredAppData): AppData | null {
   };
 }
 
+export function parseAppDataExportEnvelope(raw: string): AppDataExportEnvelope | null {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      !isRecord(parsed) ||
+      parsed.format !== BACKUP_FORMAT ||
+      !isSupportedAppDataVersion(parsed.version) ||
+      typeof parsed.exportedAt !== 'string' ||
+      Number.isNaN(Date.parse(parsed.exportedAt)) ||
+      !isRecord(parsed.data) ||
+      !isSupportedAppDataVersion(parsed.data.version) ||
+      parsed.version !== parsed.data.version
+    ) {
+      return null;
+    }
+    const data = migrateAppData(parsed.data as StoredAppData);
+    if (!data) return null;
+    return {
+      format: BACKUP_FORMAT,
+      version: parsed.version,
+      exportedAt: parsed.exportedAt,
+      data
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function parseAppDataExport(raw: string): AppData | null {
+  return parseAppDataExportEnvelope(raw)?.data ?? null;
+}
+
+function isSupportedAppDataVersion(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= 1 &&
+    value <= CURRENT_APP_DATA_VERSION
+  );
+}
+
+export function serializeAppDataExport(data: AppData, exportedAt = new Date()) {
+  return JSON.stringify(
+    {
+      format: 'pomodoro-todo-app-backup',
+      version: data.version,
+      exportedAt: exportedAt.toISOString(),
+      data
+    },
+    null,
+    2
+  );
+}
 export function loadAppData(storage: Storage = window.localStorage): LoadResult {
   const raw = storage.getItem(STORAGE_KEY);
   if (!raw) {
