@@ -122,7 +122,7 @@ export default function TimerPanel({ preset, selectedTodo, onSessionComplete }: 
   }
 
   return (
-    <section className="panel timer-panel">
+    <section className={`panel timer-panel phase-${phase}`}>
       <p className="eyebrow">{phaseLabels[phase]}</p>
       <h1>{formatTime(remainingSeconds)}</h1>
       <div className="progress-track">
