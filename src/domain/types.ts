@@ -1,5 +1,5 @@
 export type TimerPhase = 'focus' | 'shortBreak' | 'longBreak';
-export type TodoStatus = 'active' | 'completed' | 'archived';
+export type TodoStatus = 'notStarted' | 'active' | 'completed' | 'archived';
 export type TodoPriority = 'low' | 'medium' | 'high';
 export type PomodoroCompletionType = 'completed' | 'skipped' | 'reset';
 

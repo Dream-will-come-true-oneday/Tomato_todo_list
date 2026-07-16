@@ -7,7 +7,7 @@ const todo: Todo = {
   id: 'todo-1',
   title: '写报告',
   notes: '',
-  status: 'active',
+  status: 'notStarted',
   priority: 'medium',
   startAt: '2026-07-16',
   dueAt: null,
@@ -54,6 +54,13 @@ describe('TaskDetail', () => {
     fireEvent.change(dueInput, { target: { value: '2026-07-20' } });
 
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ dueAt: '2026-07-20' }));
+  });
+
+  it('offers not started as a todo status', () => {
+    render(<TaskDetail todo={todo} records={[]} onSave={vi.fn()} />);
+
+    expect(screen.getByRole('option', { name: '未开始' })).toBeTruthy();
+    expect((screen.getByLabelText('状态') as HTMLSelectElement).value).toBe('notStarted');
   });
 
   it('shows only successfully completed Pomodoro records in task detail', () => {

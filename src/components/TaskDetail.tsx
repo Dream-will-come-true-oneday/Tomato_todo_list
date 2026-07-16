@@ -61,6 +61,7 @@ export default function TaskDetail({ todo, records, onSave }: Props) {
               });
             }}
           >
+            <option value="notStarted">未开始</option>
             <option value="active">进行中</option>
             <option value="completed">已完成</option>
             <option value="archived">已归档</option>

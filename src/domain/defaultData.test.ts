@@ -22,6 +22,7 @@ describe('createDefaultAppData', () => {
 
     expect(data.todos[0]).toHaveProperty('startAt');
     expect(data.todos[0]).toHaveProperty('dueAt');
+    expect(data.todos[0].status).toBe('notStarted');
     expect(data.todos[0].pomodoroCount).toBe(0);
   });
 });
