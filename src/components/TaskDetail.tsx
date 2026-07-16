@@ -7,28 +7,26 @@ type Props = {
   onSave: (todo: Todo) => void;
 };
 
-function toInputDateTime(value: string | null) {
+function toInputDate(value: string | null) {
   if (!value) return '';
-  const date = new Date(value);
-  const offsetMs = date.getTimezoneOffset() * 60 * 1000;
-  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+  return value.slice(0, 10);
 }
 
-function fromInputDateTime(value: string) {
-  return value ? new Date(value).toISOString() : null;
+function fromInputDate(value: string) {
+  return value || null;
 }
 
 export default function TaskDetail({ todo, records, onSave }: Props) {
   if (!todo) {
     return (
       <aside className="panel detail-panel">
-        <p className="empty-state">选择一个待办来编辑时间、备注和状态。</p>
-        <RecordList records={records} />
+        <p className="empty-state">选择一个待办来编辑日期、备注和状态。</p>
+        <RecordList records={records.filter((record) => record.completionType === 'completed')} />
       </aside>
     );
   }
 
-  const todoRecords = records.filter((record) => record.todoId === todo.id);
+  const todoRecords = records.filter((record) => record.todoId === todo.id && record.completionType === 'completed');
 
   return (
     <aside className="panel detail-panel">
@@ -73,17 +71,17 @@ export default function TaskDetail({ todo, records, onSave }: Props) {
         <label>
           开始时间
           <input
-            type="datetime-local"
-            value={toInputDateTime(todo.startAt)}
-            onChange={(event) => onSave({ ...todo, startAt: fromInputDateTime(event.target.value) })}
+            type="date"
+            value={toInputDate(todo.startAt)}
+            onChange={(event) => onSave({ ...todo, startAt: fromInputDate(event.target.value) })}
           />
         </label>
         <label>
           截止时间
           <input
-            type="datetime-local"
-            value={toInputDateTime(todo.dueAt)}
-            onChange={(event) => onSave({ ...todo, dueAt: fromInputDateTime(event.target.value) })}
+            type="date"
+            value={toInputDate(todo.dueAt)}
+            onChange={(event) => onSave({ ...todo, dueAt: fromInputDate(event.target.value) })}
           />
         </label>
       </div>

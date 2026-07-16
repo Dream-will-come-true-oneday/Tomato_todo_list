@@ -3,12 +3,12 @@ import Sidebar from './components/Sidebar';
 import TaskDetail from './components/TaskDetail';
 import TimerPanel from './components/TimerPanel';
 import { appReducer } from './domain/appReducer';
+import { createDefaultTodo } from './domain/defaultData';
 import { loadAppData, saveAppData } from './domain/storage';
 import type { Todo } from './domain/types';
 
-const initialLoad = loadAppData();
-
 export default function App() {
+  const [initialLoad] = useState(loadAppData);
   const [data, dispatch] = useReducer(appReducer, initialLoad.data);
   const [selectedTodoId, setSelectedTodoId] = useState<string | null>(initialLoad.data.todos[0]?.id ?? null);
   const [recovered, setRecovered] = useState(initialLoad.recovered);
@@ -27,6 +27,12 @@ export default function App() {
     dispatch({ type: 'updateTodo', todo: { ...todo, updatedAt: new Date().toISOString() } });
   }
 
+  function handleAddTodo(title: string) {
+    const todo = createDefaultTodo(title);
+    dispatch({ type: 'addTodo', todo });
+    setSelectedTodoId(todo.id);
+  }
+
   return (
     <main className="app-shell">
       {recovered && (
@@ -42,7 +48,7 @@ export default function App() {
         data={data}
         selectedTodoId={selectedTodoId}
         onSelectTodo={setSelectedTodoId}
-        onAddTodo={(title) => dispatch({ type: 'addTodo', title })}
+        onAddTodo={handleAddTodo}
         onSetActivePreset={(presetId) => dispatch({ type: 'setActivePreset', presetId })}
         onUpsertPreset={(preset) => dispatch({ type: 'upsertPreset', preset })}
         onDeletePreset={(presetId) => dispatch({ type: 'deletePreset', presetId })}
