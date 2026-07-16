@@ -17,13 +17,22 @@ const baseTodo: Todo = {
 };
 
 describe('getTodoTimeBadge', () => {
-  it('marks overdue active todos', () => {
+  it('marks date-only todos overdue only after the due date has ended', () => {
     const badge = getTodoTimeBadge(
-      { ...baseTodo, dueAt: '2026-07-15T10:00:00.000Z' },
+      { ...baseTodo, dueAt: '2026-07-15' },
       new Date('2026-07-16T09:00:00.000Z')
     );
 
     expect(badge).toEqual({ tone: 'danger', label: '已逾期' });
+  });
+
+  it('does not mark a date-only todo overdue on its due date', () => {
+    const badge = getTodoTimeBadge(
+      { ...baseTodo, dueAt: '2026-07-16' },
+      new Date(2026, 6, 16, 23, 30)
+    );
+
+    expect(badge).toEqual({ tone: 'warning', label: '即将截止' });
   });
 
   it('marks todos due soon within 24 hours', () => {
@@ -37,7 +46,7 @@ describe('getTodoTimeBadge', () => {
 
   it('marks todos starting today', () => {
     const badge = getTodoTimeBadge(
-      { ...baseTodo, startAt: '2026-07-16T14:00:00.000Z' },
+      { ...baseTodo, startAt: '2026-07-16' },
       new Date('2026-07-16T09:00:00.000Z')
     );
 
