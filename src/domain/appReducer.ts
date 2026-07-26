@@ -77,6 +77,20 @@ function uniqueIds(ids: string[]) {
   return [...new Set(ids)];
 }
 
+function hasValidTypeTag(todo: Todo, typeTags: TodoTypeTag[]) {
+  return todo.typeTagIds.some((tagId) => typeTags.some((tag) => tag.id === tagId));
+}
+
+function wouldLeaveCompletedTodoUntagged(data: AppData, tagId: string) {
+  const remainingTagIds = new Set(data.typeTags.filter((tag) => tag.id !== tagId).map((tag) => tag.id));
+  return data.todos.some(
+    (todo) =>
+      todo.status === 'completed' &&
+      todo.typeTagIds.includes(tagId) &&
+      !todo.typeTagIds.some((todoTagId) => todoTagId !== tagId && remainingTagIds.has(todoTagId))
+  );
+}
+
 export function appReducer(data: AppData, action: AppAction): AppData {
   switch (action.type) {
     case 'completeFocusSession': {
@@ -96,10 +110,12 @@ export function appReducer(data: AppData, action: AppAction): AppData {
       };
     }
     case 'addTodo': {
+      if (action.todo.status === 'completed' && !hasValidTypeTag(action.todo, data.typeTags)) return data;
       return { ...data, todos: [withCompletionArchive(action.todo), ...data.todos] };
     }
     case 'updateTodo': {
       const previousTodo = data.todos.find((todo) => todo.id === action.todo.id);
+      if (action.todo.status === 'completed' && !hasValidTypeTag(action.todo, data.typeTags)) return data;
       const nextTodo = withCompletionArchive(action.todo, previousTodo);
       return {
         ...data,
@@ -117,6 +133,7 @@ export function appReducer(data: AppData, action: AppAction): AppData {
       return { ...data, typeTags: [...data.typeTags, action.tag] };
     }
     case 'deleteTypeTag': {
+      if (wouldLeaveCompletedTodoUntagged(data, action.tagId)) return data;
       return {
         ...data,
         typeTags: data.typeTags.filter((tag) => tag.id !== action.tagId),

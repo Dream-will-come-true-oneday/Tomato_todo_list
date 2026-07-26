@@ -94,7 +94,7 @@ export function createBacklogItem(title: string): BacklogItem {
 export function createDefaultAppData(): AppData {
   const presets = DEFAULT_PRESETS.map((preset) => ({ ...preset }));
   return {
-    version: 3,
+    version: 4,
     presets,
     todos: [createDefaultTodo()],
     typeTags: [

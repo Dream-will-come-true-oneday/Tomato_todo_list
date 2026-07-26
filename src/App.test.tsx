@@ -44,6 +44,7 @@ describe('App workflows', () => {
     fireEvent.click(screen.getByRole('button', { name: /^新增$/ }));
 
     expect(screen.getByDisplayValue('复盘产品体验')).toBeTruthy();
+    fireEvent.click(screen.getByLabelText('复盘产品体验 类型标签 读书'));
 
     fireEvent.change(screen.getByLabelText('复盘产品体验 状态'), {
       target: { value: 'completed' }
@@ -192,6 +193,34 @@ describe('App workflows', () => {
     expect((within(doneTable as HTMLElement).getByLabelText('Parent task 已完成页状态') as HTMLSelectElement).value).toBe(
       'active'
     );
+
+    fireEvent.click(screen.getByRole('button', { name: '收起 Parent task 的子任务' }));
+    expect(within(doneTable as HTMLElement).queryByText('Child task')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '展开 Parent task 的子任务' }));
+    expect(within(doneTable as HTMLElement).getByText('Child task')).toBeTruthy();
+  });
+
+  it('collapses and expands child todos in the incomplete list', () => {
+    const data = createDefaultAppData();
+    const parent = createDefaultTodo('父待办', { status: 'active' });
+    const child = createDefaultTodo('子待办', { parentId: parent.id, status: 'active' });
+    data.todos = [parent, child];
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: '待办事项' }));
+    fireEvent.click(screen.getByRole('button', { name: '未完成待办' }));
+
+    expect(screen.getByDisplayValue('子待办')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '收起 父待办 的子任务' }));
+    expect(screen.queryByDisplayValue('子待办')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '展开 父待办 的子任务' }));
+    expect(screen.getByDisplayValue('子待办')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '全部收起' }));
+    expect(screen.queryByDisplayValue('子待办')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '全部展开' }));
+    expect(screen.getByDisplayValue('子待办')).toBeTruthy();
   });
 
   it('can add, rename, select and delete Pomodoro timer types without duplicating the current name', () => {
@@ -232,7 +261,7 @@ describe('App workflows', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '已完成待办' }));
     expect(screen.getByRole('heading', { name: '完成类型占比' })).toBeTruthy();
-    expect(screen.getByText('未分类')).toBeTruthy();
+    expect(screen.getAllByText('IT').length).toBeGreaterThan(0);
     expect(screen.getAllByText(data.typeTags[0].name).length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole('button', { name: '待办事项' }));
@@ -245,5 +274,21 @@ describe('App workflows', () => {
     fireEvent.click(screen.getByRole('button', { name: '待办事项' }));
     fireEvent.click(screen.getByRole('button', { name: '周总结' }));
     expect((screen.getByLabelText('本周复盘') as HTMLTextAreaElement).value).toBe('完成本周复盘');
+  });
+
+  it('requires a type tag before a todo can be completed', () => {
+    const data = createDefaultAppData();
+    data.todos = [createDefaultTodo('需要标签', { status: 'active' })];
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: '待办事项' }));
+    fireEvent.click(screen.getByRole('button', { name: '未完成待办' }));
+    fireEvent.change(screen.getByLabelText('需要标签 状态'), { target: { value: 'completed' } });
+
+    expect(screen.getByRole('alertdialog')).toBeTruthy();
+    expect(screen.getByText('完成前请选择类型标签')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '前往添加标签' }));
+    expect(document.activeElement?.getAttribute('aria-label')).toBe(`需要标签 类型标签 ${data.typeTags[0].name}`);
   });
 });

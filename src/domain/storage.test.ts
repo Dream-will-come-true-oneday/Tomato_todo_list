@@ -3,26 +3,26 @@ import { createDefaultAppData } from './defaultData';
 import { loadAppData, saveAppData } from './storage';
 
 describe('storage', () => {
-  it('loads v3 defaults when storage is empty', () => {
+  it('loads v4 defaults when storage is empty', () => {
     const storage = new Map<string, string>();
     const getItem = vi.fn((key: string) => storage.get(key) ?? null);
 
     const result = loadAppData({ getItem } as unknown as Storage);
 
-    expect(result.data.version).toBe(3);
+    expect(result.data.version).toBe(4);
     expect(result.recovered).toBe(false);
   });
 
-  it('recovers to v3 defaults when stored JSON is invalid', () => {
+  it('recovers to v4 defaults when stored JSON is invalid', () => {
     const getItem = vi.fn(() => '{bad json');
 
     const result = loadAppData({ getItem } as unknown as Storage);
 
-    expect(result.data.version).toBe(3);
+    expect(result.data.version).toBe(4);
     expect(result.recovered).toBe(true);
   });
 
-  it('migrates old todos by filling new v3 fields', () => {
+  it('migrates old todos by filling new v4 fields', () => {
     const base = createDefaultAppData();
     const stored = {
       ...base,
@@ -53,7 +53,7 @@ describe('storage', () => {
     const result = loadAppData({ getItem } as unknown as Storage);
 
     expect(result.recovered).toBe(false);
-    expect(result.data.version).toBe(3);
+    expect(result.data.version).toBe(4);
     expect(result.data.todos[0]).toMatchObject({
       parentId: null,
       term: 'short',
@@ -65,6 +65,44 @@ describe('storage', () => {
     expect(result.data.presets[0].soundEnabled).toBe(true);
     expect(result.data.todayPlans).toEqual({});
     expect(result.data.weeklyReflections).toEqual([]);
+  });
+
+  it('adds the IT tag to completed tasks that have no valid type tag', () => {
+    const base = createDefaultAppData();
+    const stored = {
+      ...base,
+      version: 3,
+      todos: [
+        {
+          ...base.todos[0],
+          status: 'completed',
+          completedAt: '2026-07-26T08:00:00.000Z',
+          typeTagIds: []
+        }
+      ]
+    };
+    const result = loadAppData({ getItem: vi.fn(() => JSON.stringify(stored)) } as unknown as Storage);
+    const itTag = result.data.typeTags.find((tag) => tag.name === 'IT');
+
+    expect(itTag).toBeDefined();
+    expect(result.data.todos[0].typeTagIds).toEqual([itTag!.id]);
+  });
+
+  it('keeps compatible legacy data when Pomodoro records or the active preset are absent', () => {
+    const base = createDefaultAppData();
+    const stored = {
+      ...base,
+      version: 1,
+      pomodoroRecords: undefined,
+      activePresetId: undefined
+    };
+
+    const result = loadAppData({ getItem: vi.fn(() => JSON.stringify(stored)) } as unknown as Storage);
+
+    expect(result.recovered).toBe(false);
+    expect(result.data.todos).toHaveLength(base.todos.length);
+    expect(result.data.pomodoroRecords).toEqual([]);
+    expect(result.data.activePresetId).toBe(base.presets[0].id);
   });
 
   it('saves app data as JSON', () => {

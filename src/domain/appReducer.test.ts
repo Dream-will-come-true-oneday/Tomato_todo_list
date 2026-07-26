@@ -38,7 +38,7 @@ describe('appReducer', () => {
 
   it('stamps completedAt when a todo becomes completed', () => {
     const data = createDefaultAppData();
-    const todo = data.todos[0];
+    const todo = { ...data.todos[0], typeTagIds: [data.typeTags[0].id] };
 
     const next = appReducer(data, {
       type: 'updateTodo',
@@ -109,5 +109,31 @@ describe('appReducer', () => {
     expect(second.weeklyReflections).toEqual([
       { weekStart: '2026-07-20', content: '更新版', updatedAt: '2026-07-26T10:00:00.000Z' }
     ]);
+  });
+
+  it('refuses to complete a todo without a valid type tag', () => {
+    const data = createDefaultAppData();
+    const todo = { ...data.todos[0], status: 'active' as const, typeTagIds: [] as string[] };
+    const input = { ...data, todos: [todo] };
+    const next = appReducer(input, { type: 'updateTodo', todo: { ...todo, status: 'completed' } });
+
+    expect(next).toBe(input);
+  });
+
+  it('refuses to delete the last valid type tag from a completed todo', () => {
+    const data = createDefaultAppData();
+    const tagId = data.typeTags[0].id;
+    const todo = { ...data.todos[0], status: 'completed' as const, completedAt: '2026-07-26T08:00:00.000Z', typeTagIds: [tagId] };
+    const input = { ...data, todos: [todo] };
+    const next = appReducer(input, { type: 'deleteTypeTag', tagId });
+
+    expect(next).toBe(input);
+  });
+
+  it('refuses to add a completed todo without a valid type tag', () => {
+    const data = createDefaultAppData();
+    const todo = { ...data.todos[0], id: 'completed-without-type', status: 'completed' as const };
+
+    expect(appReducer(data, { type: 'addTodo', todo })).toBe(data);
   });
 });
