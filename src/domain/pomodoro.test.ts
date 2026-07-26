@@ -9,7 +9,8 @@ const preset: TimerPreset = {
   shortBreakMinutes: 5,
   longBreakMinutes: 15,
   longBreakInterval: 4,
-  autoStartNextPhase: false
+  autoStartNextPhase: false,
+  soundEnabled: true
 };
 
 describe('pomodoro helpers', () => {

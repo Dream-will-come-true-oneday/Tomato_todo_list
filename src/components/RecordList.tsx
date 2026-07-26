@@ -5,17 +5,19 @@ type Props = {
 };
 
 export default function RecordList({ records }: Props) {
-  if (records.length === 0) {
-    return <p className="empty-state">还没有番茄记录。</p>;
+  const completedRecords = records.filter((record) => record.completionType === 'completed');
+
+  if (completedRecords.length === 0) {
+    return <p className="empty-state">还没有成功完成的番茄记录。</p>;
   }
 
   return (
     <div className="record-list">
-      {records.slice(0, 8).map((record) => (
+      {completedRecords.slice(0, 8).map((record) => (
         <div className="record-item" key={record.id}>
           <strong>{record.plannedFocusMinutes} 分钟</strong>
           <span>{new Date(record.endedAt).toLocaleString()}</span>
-          <em>{record.completionType === 'completed' ? '完成' : record.completionType === 'skipped' ? '跳过' : '重置'}</em>
+          <em>完成</em>
         </div>
       ))}
     </div>
