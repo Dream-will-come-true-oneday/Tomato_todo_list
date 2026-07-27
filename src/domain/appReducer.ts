@@ -4,10 +4,12 @@ import type {
   BacklogItem,
   DailyReflection,
   DailyPomodoroPlan,
+  DailyScheduleSettings,
   PomodoroCompletionType,
   TimerPreset,
   Todo,
   TodoTypeTag,
+  InspirationTag,
   WeeklyReflection
 } from './types';
 
@@ -22,6 +24,7 @@ export type AppAction =
     }
   | { type: 'addTodo'; todo: Todo }
   | { type: 'updateTodo'; todo: Todo }
+  | { type: 'toggleTodoCheckIn'; todoId: string; date: string }
   | { type: 'deleteTodo'; todoId: string }
   | { type: 'addTypeTag'; tag: TodoTypeTag }
   | { type: 'deleteTypeTag'; tagId: string }
@@ -30,8 +33,12 @@ export type AppAction =
   | { type: 'addBacklogItem'; item: BacklogItem }
   | { type: 'updateBacklogItem'; item: BacklogItem }
   | { type: 'deleteBacklogItem'; itemId: string }
+  | { type: 'addInspirationTag'; tag: InspirationTag }
+  | { type: 'deleteInspirationTag'; tagId: string }
   | { type: 'addTodayPlanTodo'; date: string; todoId: string }
   | { type: 'removeTodayPlanTodo'; date: string; todoId: string; isDefaultTodo: boolean }
+  | { type: 'updateDailySchedule'; schedule: DailyScheduleSettings }
+  | { type: 'replaceData'; data: AppData }
   | { type: 'setActivePreset'; presetId: string }
   | { type: 'upsertPreset'; preset: TimerPreset }
   | { type: 'deletePreset'; presetId: string };
@@ -81,14 +88,18 @@ function hasValidTypeTag(todo: Todo, typeTags: TodoTypeTag[]) {
   return todo.typeTagIds.some((tagId) => typeTags.some((tag) => tag.id === tagId));
 }
 
-function wouldLeaveCompletedTodoUntagged(data: AppData, tagId: string) {
+function wouldLeaveAchievementTodoUntagged(data: AppData, tagId: string) {
   const remainingTagIds = new Set(data.typeTags.filter((tag) => tag.id !== tagId).map((tag) => tag.id));
   return data.todos.some(
     (todo) =>
-      todo.status === 'completed' &&
+      (todo.status === 'completed' || todo.checkInDates.length > 0) &&
       todo.typeTagIds.includes(tagId) &&
       !todo.typeTagIds.some((todoTagId) => todoTagId !== tagId && remainingTagIds.has(todoTagId))
   );
+}
+
+function hasValidInspirationTag(item: BacklogItem, tags: InspirationTag[]) {
+  return Boolean(item.tagId && tags.some((tag) => tag.id === item.tagId));
 }
 
 export function appReducer(data: AppData, action: AppAction): AppData {
@@ -122,6 +133,22 @@ export function appReducer(data: AppData, action: AppAction): AppData {
         todos: data.todos.map((todo) => (todo.id === action.todo.id ? nextTodo : todo))
       };
     }
+    case 'toggleTodoCheckIn': {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(action.date)) return data;
+      const target = data.todos.find((todo) => todo.id === action.todoId);
+      if (!target || target.term !== 'long' || target.status === 'completed' || target.status === 'archived') return data;
+      if (!hasValidTypeTag(target, data.typeTags)) return data;
+      const hasCheckedIn = target.checkInDates.includes(action.date);
+      const checkInDates = hasCheckedIn
+        ? target.checkInDates.filter((date) => date !== action.date)
+        : [...new Set([...target.checkInDates, action.date])];
+      return {
+        ...data,
+        todos: data.todos.map((todo) =>
+          todo.id === action.todoId ? { ...todo, checkInDates, updatedAt: new Date().toISOString() } : todo
+        )
+      };
+    }
     case 'deleteTodo': {
       const idsToDelete = collectDescendantTodoIds(data.todos, action.todoId);
       return {
@@ -133,7 +160,7 @@ export function appReducer(data: AppData, action: AppAction): AppData {
       return { ...data, typeTags: [...data.typeTags, action.tag] };
     }
     case 'deleteTypeTag': {
-      if (wouldLeaveCompletedTodoUntagged(data, action.tagId)) return data;
+      if (wouldLeaveAchievementTodoUntagged(data, action.tagId)) return data;
       return {
         ...data,
         typeTags: data.typeTags.filter((tag) => tag.id !== action.tagId),
@@ -165,6 +192,7 @@ export function appReducer(data: AppData, action: AppAction): AppData {
       return { ...data, backlogItems: [action.item, ...data.backlogItems] };
     }
     case 'updateBacklogItem': {
+      if (action.item.status === 'completed' && !hasValidInspirationTag(action.item, data.inspirationTags)) return data;
       return {
         ...data,
         backlogItems: data.backlogItems.map((item) => (item.id === action.item.id ? action.item : item))
@@ -172,6 +200,13 @@ export function appReducer(data: AppData, action: AppAction): AppData {
     }
     case 'deleteBacklogItem': {
       return { ...data, backlogItems: data.backlogItems.filter((item) => item.id !== action.itemId) };
+    }
+    case 'addInspirationTag': {
+      return { ...data, inspirationTags: [...data.inspirationTags, action.tag] };
+    }
+    case 'deleteInspirationTag': {
+      if (data.backlogItems.some((item) => item.tagId === action.tagId)) return data;
+      return { ...data, inspirationTags: data.inspirationTags.filter((tag) => tag.id !== action.tagId) };
     }
     case 'addTodayPlanTodo': {
       const plan = getTodayPlan(data, action.date);
@@ -200,6 +235,12 @@ export function appReducer(data: AppData, action: AppAction): AppData {
           }
         }
       };
+    }
+    case 'updateDailySchedule': {
+      return { ...data, dailySchedule: action.schedule };
+    }
+    case 'replaceData': {
+      return action.data;
     }
     case 'setActivePreset': {
       return data.presets.some((preset) => preset.id === action.presetId)

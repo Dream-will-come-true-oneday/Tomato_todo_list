@@ -1,38 +1,93 @@
 import {
+  AlarmClock,
+  Archive,
   ArrowUpRight,
+  BellRing,
+  CalendarCheck2,
   CalendarDays,
   CalendarRange,
-  BellRing,
+  ChartPie,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  ChartPie,
   Clock3,
+  Download,
+  Eye,
   Home,
   Lightbulb,
   ListTodo,
   Plus,
+  RotateCcw,
   ScrollText,
-  Trash2
+  Send,
+  Settings,
+  Sparkles,
+  Tag,
+  Trash2,
+  Upload,
+  X
 } from 'lucide-react';
-import { useEffect, useMemo, useReducer, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import type { RefObject } from 'react';
+import ReactMarkdown from 'react-markdown';
 import heroImage from './assets/longchang-awakening-hero.png';
+import inspirationFountainImage from './assets/inspiration-cupid-fountain.png';
 import pomodoroBackgroundImage from './assets/longchang-awakening-pomodoro.png';
-import TimerPanel from './components/TimerPanel';
+import TimerPanel, { type TimerPanelHandle, type TimerSnapshot } from './components/TimerPanel';
+import { getDesktopBridge, type SaveBackupResult } from './desktopBridge';
 import { appReducer } from './domain/appReducer';
-import { createBacklogItem, createDefaultTodo, createTypeTag } from './domain/defaultData';
-import { loadAppData, saveAppData } from './domain/storage';
-import { isCompletedOn, isIncompleteTodo, isTodayPomodoroTodo, toDateKey } from './domain/todoFilters';
-import { getTodoTimeBadge } from './domain/todoStatus';
-import { buildWeeklyTodoTree, getCompletedTypeTagShares, getWeekStart, getWeekSummary, type TypeTagShare, type WeeklyTodoNode } from './domain/reporting';
-import type { BacklogItem, DailyPomodoroPlan, PomodoroRecord, TimerPreset, Todo, TodoStatus, TodoTerm, UrgencyTag } from './domain/types';
+import {
+  createBacklogItem,
+  createDefaultDailySchedule,
+  createDefaultTodo,
+  createInspirationTag,
+  createTypeTag
+} from './domain/defaultData';
+import {
+  getCurrentScheduleItem,
+  getLatestMissedScheduleReminder,
+  getNextScheduleItem,
+  getScheduleReminderKey,
+  isValidScheduleTime,
+  scheduleTimeToMinutes,
+  sortScheduleItems,
+  type ScheduleReminder
+} from './domain/dailySchedule';
+import { playReminderSound } from './domain/reminderSound';
+import { loadAppData, parseAppDataExportEnvelope, saveAppData, serializeAppDataExport } from './domain/storage';
+import { isIncompleteTodo, isTodayPomodoroTodo, toDateKey } from './domain/todoFilters';
+import { getTodoTimeBadge, isCompletedLate } from './domain/todoStatus';
+import {
+  buildWeeklyTodoTree,
+  getAchievementsOn,
+  getAchievementTypeTagShares,
+  getWeekStart,
+  getWeekSummary,
+  type TodoAchievementKind,
+  type TypeTagShare,
+  type WeeklyTodoNode
+} from './domain/reporting';
+import type {
+  AppData,
+  BacklogItem,
+  DailyPomodoroPlan,
+  DailyScheduleItem,
+  DailyScheduleSettings,
+  InspirationTag,
+  PomodoroRecord,
+  TimerPreset,
+  Todo,
+  TodoStatus,
+  TodoTerm,
+  UrgencyTag
+} from './domain/types';
 
-type Page = 'home' | 'pomodoro' | 'todoHub' | 'todayPlan' | 'incomplete' | 'completed' | 'weeklySummary' | 'backlog';
+type Page = 'home' | 'pomodoro' | 'dailySchedule' | 'todoHub' | 'todayPlan' | 'incomplete' | 'completed' | 'weeklySummary' | 'backlog' | 'completedBacklog';
 
 type CompletedTodoGroup = {
   parent: Todo;
-  parentCompletedOnDate: boolean;
-  children: Todo[];
+  parentAchievementKind: TodoAchievementKind | null;
+  children: Array<{ todo: Todo; achievementKind: TodoAchievementKind }>;
 };
 
 type TodoFilterState = {
@@ -76,7 +131,7 @@ function currentIso() {
 }
 
 function asInputDate(value: string | null) {
-  return value ?? '';
+  return value?.slice(0, 10) ?? '';
 }
 
 function nullableDate(value: string) {
@@ -117,9 +172,13 @@ function getTodoTypeTags(todo: Todo, typeTags: TypeTagView[]) {
 
 function buildCompletedTodoGroups(todos: Todo[], dateKey: string): CompletedTodoGroup[] {
   const todoById = new Map(todos.map((todo) => [todo.id, todo]));
+  const achievements = getAchievementsOn(todos, dateKey);
+  const achievementKindByTodoId = new Map(achievements.map((achievement) => [achievement.todoId, achievement.kind]));
   const groups = new Map<string, CompletedTodoGroup>();
 
-  for (const todo of todos.filter((item) => isCompletedOn(item, dateKey))) {
+  for (const achievement of achievements) {
+    const todo = todoById.get(achievement.todoId);
+    if (!todo) continue;
     const parent = todo.parentId ? todoById.get(todo.parentId) : null;
     const groupParent = parent ?? todo;
     const existing = groups.get(groupParent.id);
@@ -127,19 +186,23 @@ function buildCompletedTodoGroups(todos: Todo[], dateKey: string): CompletedTodo
       existing ??
       {
         parent: groupParent,
-        parentCompletedOnDate: isCompletedOn(groupParent, dateKey),
+        parentAchievementKind: achievementKindByTodoId.get(groupParent.id) ?? null,
         children: []
       };
 
     if (todo.id !== groupParent.id) {
-      group.children.push(todo);
+      group.children.push({ todo, achievementKind: achievement.kind });
     }
 
     groups.set(groupParent.id, group);
   }
 
   return [...groups.values()]
-    .map((group) => ({ ...group, children: [...group.children].sort(compareTodosBySchedule) }))
+    .map((group) => ({
+      ...group,
+      parentAchievementKind: achievementKindByTodoId.get(group.parent.id) ?? group.parentAchievementKind,
+      children: [...group.children].sort((a, b) => compareTodosBySchedule(a.todo, b.todo))
+    }))
     .sort((a, b) => compareTodosBySchedule(a.parent, b.parent));
 }
 
@@ -147,7 +210,7 @@ function filterCompletedTodoGroups(groups: CompletedTodoGroup[], filters: TodoFi
   return groups
     .map((group) => {
       const parentMatches = matchesTodoFilters(group.parent, filters);
-      const children = group.children.filter((child) => matchesTodoFilters(child, filters));
+      const children = group.children.filter((child) => matchesTodoFilters(child.todo, filters));
       if (!parentMatches && children.length === 0) return null;
       return { ...group, children: parentMatches ? group.children : children };
     })
@@ -187,6 +250,68 @@ function getUniquePresetName(baseName: string, presets: TimerPreset[]) {
   return `${baseName} ${index}`;
 }
 
+function downloadTextFile(contents: string, fileName: string) {
+  const url = URL.createObjectURL(new Blob([contents], { type: 'application/json' }));
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+type BrowserSaveHandle = {
+  createWritable: () => Promise<{
+    write: (contents: string) => Promise<void>;
+    close: () => Promise<void>;
+  }>;
+};
+
+type SavePickerWindow = Window & {
+  showSaveFilePicker?: (options: {
+    suggestedName: string;
+    types: Array<{ description: string; accept: Record<string, string[]> }>;
+  }) => Promise<BrowserSaveHandle>;
+};
+
+function backupFileName(label: '完整备份' | '导入前备份', date = new Date()) {
+  const datePart = toDateKey(date);
+  const timePart = [date.getHours(), date.getMinutes(), date.getSeconds()]
+    .map((part) => part.toString().padStart(2, '0'))
+    .join('');
+  return `番茄时钟与待办-${label}-${datePart}-${timePart}.json`;
+}
+
+async function saveBackupFile(
+  contents: string,
+  fileName: string,
+  desktopBridge: ReturnType<typeof getDesktopBridge>
+): Promise<SaveBackupResult> {
+  if (desktopBridge) return desktopBridge.saveFullBackup(contents, fileName);
+
+  const picker = (window as SavePickerWindow).showSaveFilePicker;
+  if (picker) {
+    try {
+      const handle = await picker({
+        suggestedName: fileName,
+        types: [{ description: 'JSON 数据备份', accept: { 'application/json': ['.json'] } }]
+      });
+      const writable = await handle.createWritable();
+      await writable.write(contents);
+      await writable.close();
+      return { status: 'saved', filePath: fileName };
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return { status: 'cancelled' };
+      return { status: 'error', message: error instanceof Error ? error.message : '写入备份文件失败' };
+    }
+  }
+
+  downloadTextFile(contents, fileName);
+  return { status: 'saved', filePath: fileName };
+}
+
+const BROWSER_SCHEDULE_REMINDER_KEY = 'pomodoro-todo-app:daily-schedule-last-reminder';
+
+
 export default function App() {
   const [initialLoad] = useState(loadAppData);
   const [data, dispatch] = useReducer(appReducer, initialLoad.data);
@@ -194,12 +319,73 @@ export default function App() {
   const [recovered, setRecovered] = useState(initialLoad.recovered);
   const [selectedPomodoroTodoId, setSelectedPomodoroTodoId] = useState<string | null>(null);
   const [todoTagFocusId, setTodoTagFocusId] = useState<string | null>(null);
+  const [timerSnapshot, setTimerSnapshot] = useState<TimerSnapshot | null>(null);
+  const [scheduleReminder, setScheduleReminder] = useState<ScheduleReminder | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const closeSettings = useCallback(() => setSettingsOpen(false), []);
+  const scheduleReminderTimerRef = useRef<number | null>(null);
+  const timerPanelRef = useRef<TimerPanelHandle>(null);
+  const desktopBridge = useMemo(getDesktopBridge, []);
   const today = toDateKey();
 
   useEffect(() => {
-    if (initialLoad.recovered) return;
+    if (recovered) return;
     saveAppData(data);
-  }, [data, initialLoad.recovered]);
+  }, [data, recovered]);
+  function presentScheduleReminder(reminder: ScheduleReminder, allowBrowserNotification: boolean) {
+    playReminderSound(data.dailySchedule.soundEnabled);
+    setScheduleReminder(reminder);
+    if (scheduleReminderTimerRef.current !== null) window.clearTimeout(scheduleReminderTimerRef.current);
+    scheduleReminderTimerRef.current = window.setTimeout(() => setScheduleReminder(null), 8000);
+
+    if (
+      allowBrowserNotification &&
+      data.dailySchedule.desktopNotificationEnabled &&
+      'Notification' in window &&
+      Notification.permission === 'granted'
+    ) {
+      new Notification('每日安排提醒', { body: reminder.rule ? `${reminder.title}：${reminder.rule}` : reminder.title });
+    }
+  }
+
+  useEffect(() => {
+    if (!desktopBridge) return;
+    void desktopBridge.syncDailySchedule(data.dailySchedule);
+  }, [data.dailySchedule, desktopBridge]);
+
+  useEffect(() => {
+    if (!desktopBridge) return;
+    return desktopBridge.onDailyScheduleReminder((reminder) => presentScheduleReminder(reminder, false));
+  }, [data.dailySchedule.soundEnabled, desktopBridge]);
+
+  useEffect(() => {
+    if (!desktopBridge) return;
+    return desktopBridge.onOpenDailySchedule(() => navigate('dailySchedule'));
+  }, [desktopBridge, page]);
+
+  useEffect(() => {
+    if (desktopBridge || !data.dailySchedule.enabled) return;
+
+    const checkSchedule = () => {
+      const lastKey = window.localStorage.getItem(BROWSER_SCHEDULE_REMINDER_KEY);
+      const reminder = getLatestMissedScheduleReminder(data.dailySchedule, new Date(), lastKey);
+      if (!reminder) return;
+      const reminderKey = getScheduleReminderKey(reminder.dateKey, reminder.itemId);
+      window.localStorage.setItem(BROWSER_SCHEDULE_REMINDER_KEY, reminderKey);
+      presentScheduleReminder(reminder, true);
+    };
+
+    checkSchedule();
+    const interval = window.setInterval(checkSchedule, 15000);
+    return () => window.clearInterval(interval);
+  }, [data.dailySchedule, desktopBridge]);
+
+  useEffect(
+    () => () => {
+      if (scheduleReminderTimerRef.current !== null) window.clearTimeout(scheduleReminderTimerRef.current);
+    },
+    []
+  );
 
   const activePreset = useMemo(
     () => data.presets.find((preset) => preset.id === data.activePresetId) ?? data.presets[0],
@@ -218,12 +404,32 @@ export default function App() {
 
   const selectedPomodoroTodo = todayPlanTodos.find((todo) => todo.id === selectedPomodoroTodoId) ?? null;
 
+  function navigate(nextPage: Page) {
+    if (page === 'pomodoro' && nextPage !== 'pomodoro') {
+      const snapshot = timerPanelRef.current?.pauseAndCapture();
+      if (snapshot) setTimerSnapshot(snapshot);
+    }
+    setPage(nextPage);
+  }
+
   function updateTodo(todo: Todo, patch: Partial<Todo>) {
     dispatch({ type: 'updateTodo', todo: { ...todo, ...patch } });
   }
 
   function updatePreset(preset: TimerPreset, patch: Partial<TimerPreset>) {
     dispatch({ type: 'upsertPreset', preset: { ...preset, ...patch } });
+  }
+
+  function updateDailySchedule(schedule: DailyScheduleSettings) {
+    dispatch({ type: 'updateDailySchedule', schedule });
+  }
+
+  function replaceData(nextData: AppData) {
+    saveAppData(nextData);
+    dispatch({ type: 'replaceData', data: nextData });
+    setRecovered(false);
+    setTimerSnapshot(null);
+    setSelectedPomodoroTodoId(null);
   }
 
   return (
@@ -237,16 +443,37 @@ export default function App() {
         </div>
       )}
 
-      {page !== 'home' && <TopNav page={page} onNavigate={setPage} />}
+      {scheduleReminder && (
+        <div className="schedule-reminder-banner" role="status">
+          <AlarmClock size={20} />
+          <span>
+            <strong>{scheduleReminder.title}</strong>
+            {scheduleReminder.rule && <small>{scheduleReminder.rule}</small>}
+          </span>
+          <button type="button" aria-label="关闭每日安排提醒" onClick={() => setScheduleReminder(null)}>
+            <X size={18} />
+          </button>
+        </div>
+      )}
+      <button
+        className="global-settings-trigger"
+        type="button"
+        aria-label="打开设置"
+        title="设置"
+        onClick={() => setSettingsOpen(true)}
+      >
+        <Settings size={20} />
+      </button>
+      {page !== 'home' && <TopNav page={page} onNavigate={navigate} />}
 
-      {page === 'home' && <HomePage onNavigate={setPage} />}
+      {page === 'home' && <HomePage onNavigate={navigate} />}
       {page === 'pomodoro' && (
         <PomodoroPage
           activePreset={activePreset}
           data={data}
           selectedTodo={selectedPomodoroTodo}
           todayTodos={todayPlanTodos}
-          onNavigate={setPage}
+          onNavigate={navigate}
           onSelectTodo={setSelectedPomodoroTodoId}
           onSetActivePreset={(presetId) => dispatch({ type: 'setActivePreset', presetId })}
           onUpdatePreset={updatePreset}
@@ -262,9 +489,17 @@ export default function App() {
           }
           onDeletePreset={(presetId) => dispatch({ type: 'deletePreset', presetId })}
           onSessionComplete={(payload) => dispatch({ type: 'completeFocusSession', ...payload })}
+          timerPanelRef={timerPanelRef}
+          timerSnapshot={timerSnapshot}
         />
       )}
-      {page === 'todoHub' && <TodoHubPage data={data} todayPlanTodos={todayPlanTodos} onNavigate={setPage} />}
+      {page === 'dailySchedule' && (
+        <DailySchedulePage
+          settings={data.dailySchedule}
+          onUpdate={updateDailySchedule}
+        />
+      )}
+      {page === 'todoHub' && <TodoHubPage data={data} todayPlanTodos={todayPlanTodos} onNavigate={navigate} />}
       {page === 'todayPlan' && (
         <TodayPlanPage
           dateKey={today}
@@ -291,6 +526,7 @@ export default function App() {
           }
           onDeleteTodo={(todoId) => dispatch({ type: 'deleteTodo', todoId })}
           onUpdateTodo={updateTodo}
+          onToggleTodoCheckIn={(todoId) => dispatch({ type: 'toggleTodoCheckIn', todoId, date: today })}
           focusTodoId={todoTagFocusId}
           onFocusHandled={() => setTodoTagFocusId(null)}
         />
@@ -304,7 +540,7 @@ export default function App() {
           }
           onOpenTodoTags={(todoId) => {
             setTodoTagFocusId(todoId);
-            setPage('incomplete');
+            navigate('incomplete');
           }}
         />
       )}
@@ -319,9 +555,32 @@ export default function App() {
       {page === 'backlog' && (
         <BacklogPage
           items={data.backlogItems}
+          tags={data.inspirationTags}
           onAddItem={(title) => dispatch({ type: 'addBacklogItem', item: createBacklogItem(title) })}
           onDeleteItem={(itemId) => dispatch({ type: 'deleteBacklogItem', itemId })}
           onUpdateItem={(item) => dispatch({ type: 'updateBacklogItem', item })}
+          onAddTag={(name, color) => dispatch({ type: 'addInspirationTag', tag: createInspirationTag(name, color) })}
+          onDeleteTag={(tagId) => dispatch({ type: 'deleteInspirationTag', tagId })}
+          onNavigate={navigate}
+        />
+      )}
+      {page === 'completedBacklog' && (
+        <CompletedInspirationPage
+          items={data.backlogItems}
+          tags={data.inspirationTags}
+          onUpdateItem={(item) => dispatch({ type: 'updateBacklogItem', item })}
+          onNavigate={navigate}
+        />
+      )}
+      {settingsOpen && (
+        <GlobalSettingsDialog
+          data={data}
+          activePreset={activePreset}
+          desktopBridge={desktopBridge}
+          onClose={closeSettings}
+          onUpdatePreset={updatePreset}
+          onUpdateDailySchedule={updateDailySchedule}
+          onReplaceData={replaceData}
         />
       )}
     </main>
@@ -345,9 +604,18 @@ function TopNav({ page, onNavigate }: { page: Page; onNavigate: (page: Page) => 
         番茄钟
       </button>
       <button
-        className={page !== 'pomodoro' && page !== 'home' ? 'nav-link active' : 'nav-link'}
+        className={page === 'dailySchedule' ? 'nav-link active' : 'nav-link'}
         type="button"
-        aria-current={page !== 'pomodoro' && page !== 'home' ? 'page' : undefined}
+        aria-current={page === 'dailySchedule' ? 'page' : undefined}
+        onClick={() => onNavigate('dailySchedule')}
+      >
+        <CalendarRange size={17} />
+        每日安排
+      </button>
+      <button
+        className={page !== 'pomodoro' && page !== 'dailySchedule' && page !== 'home' ? 'nav-link active' : 'nav-link'}
+        type="button"
+        aria-current={page !== 'pomodoro' && page !== 'dailySchedule' && page !== 'home' ? 'page' : undefined}
         onClick={() => onNavigate('todoHub')}
       >
         <ListTodo size={17} />
@@ -388,7 +656,7 @@ function TodoHubPage({
 }) {
   const today = toDateKey();
   const weekSummary = getWeekSummary(data.todos, data.typeTags, data.pomodoroRecords, getWeekStart());
-  const completedToday = data.todos.filter((todo) => isCompletedOn(todo, today)).length;
+  const achievementsToday = getAchievementsOn(data.todos, today).length;
   const incompleteTodoCount = data.todos.filter(isIncompleteTodo).length;
 
   return (
@@ -397,8 +665,8 @@ function TodoHubPage({
       <div className="todo-hub-summary" aria-label="待办摘要">
         <HubMetric label="今日安排" value={todayPlanTodos.length} />
         <HubMetric label="未完成" value={incompleteTodoCount} />
-        <HubMetric label="今日完成" value={completedToday} />
-        <HubMetric label="本周完成" value={weekSummary.completedTodoCount} />
+        <HubMetric label="今日成果" value={achievementsToday} />
+        <HubMetric label="本周成果" value={weekSummary.achievementCount} />
       </div>
       <div className="hub-actions">
         <button className="hub-action hub-action-today" type="button" onClick={() => onNavigate('todayPlan')}>
@@ -487,6 +755,225 @@ function TodayPlanPage({
   );
 }
 
+function DailySchedulePage({
+  settings,
+  onUpdate
+}: {
+  settings: DailyScheduleSettings;
+  onUpdate: (settings: DailyScheduleSettings) => void;
+}) {
+  const [now, setNow] = useState(() => new Date());
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [resetConfirm, setResetConfirm] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const sortedItems = useMemo(() => sortScheduleItems(settings.items), [settings.items]);
+  const currentItem = useMemo(() => getCurrentScheduleItem(settings.items, now), [now, settings.items]);
+  const nextItem = useMemo(() => getNextScheduleItem(settings.items, now), [now, settings.items]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(new Date()), 30000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  function updateItem(item: DailyScheduleItem, patch: Partial<DailyScheduleItem>) {
+    const nextItemValue = { ...item, ...patch };
+    if (!isValidScheduleTime(nextItemValue.startTime)) {
+      setMessage('开始时间格式不正确');
+      return;
+    }
+    if (
+      nextItemValue.endTime &&
+      (!isValidScheduleTime(nextItemValue.endTime) ||
+        scheduleTimeToMinutes(nextItemValue.endTime) <= scheduleTimeToMinutes(nextItemValue.startTime))
+    ) {
+      setMessage('结束时间必须晚于开始时间');
+      return;
+    }
+    if (
+      nextItemValue.enabled &&
+      settings.items.some(
+        (candidate) =>
+          candidate.id !== item.id && candidate.enabled && candidate.startTime === nextItemValue.startTime
+      )
+    ) {
+      setMessage('该开始时间已有启用的安排');
+      return;
+    }
+
+    setMessage(null);
+    onUpdate({
+      ...settings,
+      items: sortScheduleItems(settings.items.map((candidate) => (candidate.id === item.id ? nextItemValue : candidate)))
+    });
+  }
+
+  function addItem() {
+    const usedTimes = new Set(settings.items.filter((item) => item.enabled).map((item) => item.startTime));
+    let startMinutes = Math.ceil((now.getHours() * 60 + now.getMinutes()) / 5) * 5;
+    for (let offset = 0; offset < 24 * 12; offset += 1) {
+      const candidateMinutes = (startMinutes + offset * 5) % (24 * 60);
+      const candidate = `${Math.floor(candidateMinutes / 60).toString().padStart(2, '0')}:${(candidateMinutes % 60)
+        .toString()
+        .padStart(2, '0')}`;
+      if (usedTimes.has(candidate)) continue;
+      const item: DailyScheduleItem = {
+        id: `schedule-${crypto.randomUUID()}`,
+        startTime: candidate,
+        endTime: null,
+        title: '新安排',
+        rule: '',
+        enabled: true
+      };
+      onUpdate({ ...settings, items: sortScheduleItems([...settings.items, item]) });
+      setMessage(null);
+      return;
+    }
+    setMessage('当前没有可用的提醒时间');
+  }
+
+  function confirmDelete(itemId: string) {
+    onUpdate({ ...settings, items: settings.items.filter((item) => item.id !== itemId) });
+    setDeleteConfirmId(null);
+  }
+
+  function restoreDefaults() {
+    onUpdate({ ...settings, items: createDefaultDailySchedule().items });
+    setResetConfirm(false);
+    setMessage('已恢复默认每日安排');
+  }
+
+  return (
+    <section className="page-panel daily-schedule-page">
+      <header className="daily-schedule-header">
+        <PageTitle eyebrow="作息" title="每日时间安排" />
+        <div className="daily-current-time" aria-label="当前时间">
+          <Clock3 size={20} />
+          <strong>{now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })}</strong>
+          <span>{now.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })}</span>
+        </div>
+      </header>
+
+      {message && <p className="daily-schedule-message" role="status">{message}</p>}
+
+      <div className="daily-schedule-overview">
+        <div>
+          <span>当前安排</span>
+          <strong>{currentItem?.title ?? '当前没有启用的安排'}</strong>
+          <small>{currentItem?.rule || '暂无硬性规则'}</small>
+        </div>
+        <div>
+          <span>下一安排</span>
+          <strong>{nextItem?.title ?? '今天没有后续安排'}</strong>
+          <small>{nextItem ? `${nextItem.startTime}${nextItem.endTime ? ` - ${nextItem.endTime}` : ' 之后'}` : '-'}</small>
+        </div>
+      </div>
+
+      <div className="daily-timeline-toolbar">
+        <div>
+          <h2>今日时间轴</h2>
+          <span>{settings.items.length} 项安排</span>
+        </div>
+        <div>
+          <button type="button" onClick={addItem}>
+            <Plus size={17} />
+            新增安排
+          </button>
+          <button className="ghost-button" type="button" onClick={() => setResetConfirm(true)}>
+            <RotateCcw size={17} />
+            恢复默认
+          </button>
+        </div>
+      </div>
+
+      {resetConfirm && (
+        <div className="inline-confirmation" role="alert">
+          <span>恢复默认安排会替换当前全部时间段，是否继续？</span>
+          <button type="button" onClick={restoreDefaults}>确认恢复</button>
+          <button className="ghost-button" type="button" onClick={() => setResetConfirm(false)}>取消</button>
+        </div>
+      )}
+
+      <div className="daily-timeline">
+        {sortedItems.map((item) => (
+          <article
+            key={item.id}
+            className={`daily-timeline-item${currentItem?.id === item.id ? ' current' : ''}${item.enabled ? '' : ' disabled'}`}
+          >
+            <div className="daily-time-marker">
+              <strong>{item.startTime}</strong>
+              <span>{item.endTime ? item.endTime : '之后'}</span>
+              <i aria-hidden="true" />
+            </div>
+            <div className="daily-item-fields">
+              <label>
+                开始
+                <input
+                  type="time"
+                  aria-label={`${item.title || '未命名安排'} 开始时间`}
+                  value={item.startTime}
+                  onChange={(event) => updateItem(item, { startTime: event.target.value })}
+                />
+              </label>
+              <label>
+                结束
+                <input
+                  type="time"
+                  aria-label={`${item.title || '未命名安排'} 结束时间`}
+                  value={item.endTime ?? ''}
+                  onChange={(event) => updateItem(item, { endTime: event.target.value || null })}
+                />
+              </label>
+              <label className="daily-title-field">
+                标题
+                <input
+                  aria-label={`${item.startTime} 安排标题`}
+                  value={item.title}
+                  onChange={(event) => updateItem(item, { title: event.target.value })}
+                  onBlur={() => {
+                    if (!item.title.trim()) updateItem(item, { title: '未命名安排' });
+                  }}
+                />
+              </label>
+              <label className="daily-rule-field">
+                硬性规则
+                <input
+                  aria-label={`${item.title || item.startTime} 硬性规则`}
+                  value={item.rule}
+                  onChange={(event) => updateItem(item, { rule: event.target.value })}
+                />
+              </label>
+              <label className="toggle-row daily-item-toggle">
+                <input
+                  type="checkbox"
+                  checked={item.enabled}
+                  onChange={(event) => updateItem(item, { enabled: event.target.checked })}
+                />
+                提醒
+              </label>
+              <button
+                className="icon-button danger-icon"
+                type="button"
+                title={`删除 ${item.title || '未命名安排'}`}
+                aria-label={`删除安排 ${item.title || '未命名安排'}`}
+                onClick={() => setDeleteConfirmId(item.id)}
+              >
+                <Trash2 size={17} />
+              </button>
+            </div>
+            {deleteConfirmId === item.id && (
+              <div className="daily-item-delete-confirmation" role="alert">
+                <span>确定删除“{item.title || '未命名安排'}”吗？</span>
+                <button type="button" onClick={() => confirmDelete(item.id)}>确认删除</button>
+                <button className="ghost-button" type="button" onClick={() => setDeleteConfirmId(null)}>取消</button>
+              </div>
+            )}
+          </article>
+        ))}
+        {sortedItems.length === 0 && <p className="empty-state">尚未添加每日安排。</p>}
+      </div>
+    </section>
+  );
+}
 function PomodoroPage({
   activePreset,
   data,
@@ -498,7 +985,9 @@ function PomodoroPage({
   onUpdatePreset,
   onCreatePreset,
   onDeletePreset,
-  onSessionComplete
+  onSessionComplete,
+  timerPanelRef,
+  timerSnapshot
 }: {
   activePreset: TimerPreset;
   data: { presets: TimerPreset[] };
@@ -511,6 +1000,8 @@ function PomodoroPage({
   onCreatePreset: () => void;
   onDeletePreset: (presetId: string) => void;
   onSessionComplete: Parameters<typeof TimerPanel>[0]['onSessionComplete'];
+  timerPanelRef: RefObject<TimerPanelHandle>;
+  timerSnapshot: TimerSnapshot | null;
 }) {
   return (
     <section
@@ -541,9 +1032,19 @@ function PomodoroPage({
           <CalendarDays size={17} />
           管理今日安排
         </button>
+        <button className="ghost-button" type="button" onClick={() => onNavigate('dailySchedule')}>
+          <CalendarRange size={17} />
+          每日时间安排
+        </button>
         </aside>
 
-        <TimerPanel preset={activePreset} selectedTodo={selectedTodo} onSessionComplete={onSessionComplete} />
+        <TimerPanel
+          ref={timerPanelRef}
+          preset={activePreset}
+          selectedTodo={selectedTodo}
+          snapshot={timerSnapshot}
+          onSessionComplete={onSessionComplete}
+        />
 
         <aside className="page-panel side-panel preset-panel">
         <PageTitle eyebrow="钟法" title="番茄类型" />
@@ -622,15 +1123,6 @@ function PomodoroPage({
           />
           自动开始下一阶段
         </label>
-        <label className="toggle-row">
-          <input
-            type="checkbox"
-            checked={activePreset.soundEnabled}
-            onChange={(event) => onUpdatePreset(activePreset, { soundEnabled: event.target.checked })}
-          />
-          提醒声音
-        </label>
-        <DesktopNotificationButton />
         </aside>
       </div>
     </section>
@@ -673,6 +1165,347 @@ function DesktopNotificationButton() {
     </button>
   );
 }
+type PendingDataImport = {
+  fileName: string;
+  envelope: NonNullable<ReturnType<typeof parseAppDataExportEnvelope>>;
+};
+
+function GlobalSettingsDialog({
+  data,
+  activePreset,
+  desktopBridge,
+  onClose,
+  onUpdatePreset,
+  onUpdateDailySchedule,
+  onReplaceData
+}: {
+  data: AppData;
+  activePreset: TimerPreset;
+  desktopBridge: ReturnType<typeof getDesktopBridge>;
+  onClose: () => void;
+  onUpdatePreset: (preset: TimerPreset, patch: Partial<TimerPreset>) => void;
+  onUpdateDailySchedule: (settings: DailyScheduleSettings) => void;
+  onReplaceData: (data: AppData) => void;
+}) {
+  const dialogRef = useRef<HTMLElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [pendingImport, setPendingImport] = useState<PendingDataImport | null>(null);
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
+  const settings = data.dailySchedule;
+  const incompleteCount = data.todos.filter((todo) => todo.status !== 'completed' && todo.status !== 'archived').length;
+  const completedCount = data.todos.filter((todo) => todo.status === 'completed').length;
+
+  useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    closeButtonRef.current?.focus();
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape' && !busyRef.current) {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab' || !dialogRef.current) return;
+
+      const focusable = [...dialogRef.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )].filter((element) => element.offsetParent !== null || element === document.activeElement);
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      previousFocus?.focus();
+    };
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!desktopBridge) return;
+    let disposed = false;
+    void desktopBridge.getAutoLaunch().then((enabled) => {
+      if (!disposed && enabled !== settings.autoLaunch) {
+        onUpdateDailySchedule({ ...settings, autoLaunch: enabled });
+      }
+    });
+    return () => {
+      disposed = true;
+    };
+  }, [desktopBridge]);
+
+  async function toggleScheduleSystemReminder() {
+    if (settings.desktopNotificationEnabled) {
+      onUpdateDailySchedule({ ...settings, desktopNotificationEnabled: false });
+      return;
+    }
+    if (desktopBridge) {
+      onUpdateDailySchedule({ ...settings, desktopNotificationEnabled: true });
+      return;
+    }
+    if (!('Notification' in window)) {
+      setMessage('当前浏览器不支持系统提醒');
+      return;
+    }
+    const permission = Notification.permission === 'default' ? await Notification.requestPermission() : Notification.permission;
+    if (permission !== 'granted') {
+      setMessage('系统提醒权限未开启');
+      return;
+    }
+    onUpdateDailySchedule({ ...settings, desktopNotificationEnabled: true });
+  }
+
+  async function toggleAutoLaunch(enabled: boolean) {
+    if (!desktopBridge) return;
+    const actual = await desktopBridge.setAutoLaunch(enabled);
+    onUpdateDailySchedule({ ...settings, autoLaunch: actual });
+    if (actual !== enabled) setMessage('开机启动设置未能应用，请检查系统权限');
+  }
+
+  async function exportAllData(label: '完整备份' | '导入前备份') {
+    setBusy(true);
+    setMessage(null);
+    const result = await saveBackupFile(serializeAppDataExport(data), backupFileName(label), desktopBridge);
+    setBusy(false);
+    if (result.status === 'saved') {
+      setMessage(label === '完整备份' ? '全部软件数据已成功导出' : '当前数据备份成功');
+    } else if (result.status === 'cancelled') {
+      setMessage('已取消保存，数据没有发生变化');
+    } else {
+      setMessage(`导出失败：${result.message}`);
+    }
+    return result;
+  }
+
+  async function selectImportFile(file: File | null) {
+    if (!file) return;
+    const envelope = parseAppDataExportEnvelope(await file.text());
+    if (!envelope) {
+      setPendingImport(null);
+      setMessage('无法导入：请选择有效且受支持的完整备份 JSON');
+      return;
+    }
+    setMessage(null);
+    setPendingImport({ fileName: file.name, envelope });
+  }
+
+  async function confirmImport() {
+    if (!pendingImport) return;
+    const backupResult = await exportAllData('导入前备份');
+    if (backupResult.status !== 'saved') return;
+
+    setBusy(true);
+    let nextData = pendingImport.envelope.data;
+    if (desktopBridge) {
+      try {
+        const actualAutoLaunch = await desktopBridge.setAutoLaunch(nextData.dailySchedule.autoLaunch);
+        if (actualAutoLaunch !== nextData.dailySchedule.autoLaunch) {
+          nextData = {
+            ...nextData,
+            dailySchedule: { ...nextData.dailySchedule, autoLaunch: actualAutoLaunch }
+          };
+        }
+      } catch {
+        nextData = {
+          ...nextData,
+          dailySchedule: { ...nextData.dailySchedule, autoLaunch: false }
+        };
+      }
+    }
+    onReplaceData(nextData);
+    window.localStorage.setItem('pomodoro-todo-app:desktop-migration-tip', 'dismissed');
+    setPendingImport(null);
+    setBusy(false);
+    setMessage('完整数据已恢复');
+  }
+
+  const importData = pendingImport?.envelope.data;
+  const importedAt = pendingImport
+    ? new Date(pendingImport.envelope.exportedAt).toLocaleString('zh-CN', { hour12: false })
+    : '';
+
+  return (
+    <div
+      className="settings-dialog-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !busy) onClose();
+      }}
+    >
+      <section
+        ref={dialogRef}
+        className="settings-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-dialog-title"
+      >
+        <header className="settings-dialog-header">
+          <div>
+            <span>偏好与备份</span>
+            <h2 id="settings-dialog-title">设置</h2>
+          </div>
+          <button
+            ref={closeButtonRef}
+            className="icon-button settings-close-button"
+            type="button"
+            aria-label="关闭设置"
+            disabled={busy}
+            onClick={onClose}
+          >
+            <X size={19} />
+          </button>
+        </header>
+
+        <div className="settings-dialog-content">
+          <section className="settings-section" aria-labelledby="pomodoro-settings-title">
+            <div className="settings-section-heading">
+              <Clock3 size={19} />
+              <div>
+                <h3 id="pomodoro-settings-title">番茄钟提醒</h3>
+                <span>{activePreset.name}</span>
+              </div>
+            </div>
+            <div className="settings-controls">
+              <label className="toggle-row">
+                <input
+                  type="checkbox"
+                  checked={activePreset.soundEnabled}
+                  onChange={(event) => onUpdatePreset(activePreset, { soundEnabled: event.target.checked })}
+                />
+                提醒声音
+              </label>
+              <DesktopNotificationButton />
+            </div>
+          </section>
+
+          <section className="settings-section" aria-labelledby="schedule-settings-title">
+            <div className="settings-section-heading">
+              <CalendarRange size={19} />
+              <div>
+                <h3 id="schedule-settings-title">每日安排提醒</h3>
+                <span>{settings.items.filter((item) => item.enabled).length} 项已启用</span>
+              </div>
+            </div>
+            <div className="settings-controls">
+              <label className="toggle-row">
+                <input
+                  type="checkbox"
+                  checked={settings.enabled}
+                  onChange={(event) => onUpdateDailySchedule({ ...settings, enabled: event.target.checked })}
+                />
+                安排提醒
+              </label>
+              <label className="toggle-row">
+                <input
+                  type="checkbox"
+                  checked={settings.soundEnabled}
+                  onChange={(event) => onUpdateDailySchedule({ ...settings, soundEnabled: event.target.checked })}
+                />
+                提醒声音
+              </label>
+              <button className="ghost-button" type="button" onClick={() => void toggleScheduleSystemReminder()}>
+                <BellRing size={17} />
+                {settings.desktopNotificationEnabled ? '关闭系统提醒' : '开启系统提醒'}
+              </button>
+            </div>
+          </section>
+
+          <section className="settings-section" aria-labelledby="desktop-settings-title">
+            <div className="settings-section-heading">
+              <Settings size={19} />
+              <div>
+                <h3 id="desktop-settings-title">桌面设置</h3>
+                <span>{desktopBridge ? 'Windows 桌面版' : '浏览器模式'}</span>
+              </div>
+            </div>
+            <div className="settings-controls">
+              <label className="toggle-row" title={desktopBridge ? undefined : '仅桌面版可用'}>
+                <input
+                  type="checkbox"
+                  checked={settings.autoLaunch}
+                  disabled={!desktopBridge}
+                  onChange={(event) => void toggleAutoLaunch(event.target.checked)}
+                />
+                开机启动
+              </label>
+            </div>
+          </section>
+
+          <section className="settings-section data-settings-section" aria-labelledby="data-settings-title">
+            <div className="settings-section-heading">
+              <Download size={19} />
+              <div>
+                <h3 id="data-settings-title">数据管理</h3>
+                <span>完整持久数据</span>
+              </div>
+            </div>
+            <div className="backup-summary" aria-label="当前数据摘要">
+              <div><strong>{incompleteCount}</strong><span>未完成待办</span></div>
+              <div><strong>{completedCount}</strong><span>已完成待办</span></div>
+              <div><strong>{data.pomodoroRecords.length}</strong><span>番茄记录</span></div>
+              <div><strong>{data.backlogItems.length}</strong><span>灵感记录</span></div>
+            </div>
+            <div className="data-action-row">
+              <button type="button" disabled={busy} onClick={() => void exportAllData('完整备份')}>
+                <Download size={17} />
+                一键导出全部数据
+              </button>
+              <button className="ghost-button" type="button" disabled={busy} onClick={() => importInputRef.current?.click()}>
+                <Upload size={17} />
+                从备份恢复
+              </button>
+              <input
+                ref={importInputRef}
+                className="visually-hidden"
+                type="file"
+                accept="application/json,.json"
+                aria-label="选择完整数据备份"
+                onChange={(event) => {
+                  void selectImportFile(event.target.files?.[0] ?? null);
+                  event.target.value = '';
+                }}
+              />
+            </div>
+
+            {pendingImport && importData && (
+              <div className="backup-import-confirmation" role="alert">
+                <div>
+                  <strong>{pendingImport.fileName}</strong>
+                  <span>导出于 {importedAt}</span>
+                </div>
+                <dl>
+                  <div><dt>待办</dt><dd>{importData.todos.length}</dd></div>
+                  <div><dt>番茄</dt><dd>{importData.pomodoroRecords.length}</dd></div>
+                  <div><dt>灵感</dt><dd>{importData.backlogItems.length}</dd></div>
+                  <div><dt>复盘</dt><dd>{importData.reflections.length + importData.weeklyReflections.length}</dd></div>
+                </dl>
+                <p>恢复将完整替换当前数据，确认后会先要求保存当前数据备份。</p>
+                <div>
+                  <button type="button" disabled={busy} onClick={() => void confirmImport()}>备份当前数据并恢复</button>
+                  <button className="ghost-button" type="button" disabled={busy} onClick={() => setPendingImport(null)}>取消</button>
+                </div>
+              </div>
+            )}
+          </section>
+        </div>
+
+        {message && <p className="settings-status" role="status">{message}</p>}
+      </section>
+    </div>
+  );
+}
 
 function IncompleteTodosPage({
   data,
@@ -680,6 +1513,7 @@ function IncompleteTodosPage({
   onAddTodo,
   onAddTodayPlanTodos,
   onUpdateTodo,
+  onToggleTodoCheckIn,
   onDeleteTodo,
   onAddTypeTag,
   onDeleteTypeTag,
@@ -694,6 +1528,7 @@ function IncompleteTodosPage({
   onAddTodo: (todo: Todo) => void;
   onAddTodayPlanTodos: (todoIds: string[]) => void;
   onUpdateTodo: (todo: Todo, patch: Partial<Todo>) => void;
+  onToggleTodoCheckIn: (todoId: string) => void;
   onDeleteTodo: (todoId: string) => void;
   onAddTypeTag: (name: string, color: string) => void;
   onDeleteTypeTag: (tagId: string) => void;
@@ -711,6 +1546,7 @@ function IncompleteTodosPage({
   const [pendingDeleteTypeTagId, setPendingDeleteTypeTagId] = useState<string | null>(null);
   const [blockedDeleteTypeTagId, setBlockedDeleteTypeTagId] = useState<string | null>(null);
   const [completionTagDialogTodo, setCompletionTagDialogTodo] = useState<Todo | null>(null);
+  const [checkInTagDialogTodo, setCheckInTagDialogTodo] = useState<Todo | null>(null);
   const todayPlanTodoIdSet = new Set(todayPlanTodos.map((todo) => todo.id));
   const incompleteTodos = data.todos.filter(isIncompleteTodo).filter((todo) => matchesTodoFilters(todo, filters));
   const visibleTodayPlanCandidates = incompleteTodos.filter((todo) => !todayPlanTodoIdSet.has(todo.id));
@@ -745,13 +1581,13 @@ function IncompleteTodosPage({
 
   function deleteTypeTag(tagId: string) {
     const remainingTagIds = new Set(data.typeTags.filter((tag) => tag.id !== tagId).map((tag) => tag.id));
-    const wouldLeaveCompletedTodoUntagged = data.todos.some(
+    const wouldLeaveAchievementTodoUntagged = data.todos.some(
       (todo) =>
-        todo.status === 'completed' &&
+        (todo.status === 'completed' || todo.checkInDates.length > 0) &&
         todo.typeTagIds.includes(tagId) &&
         !todo.typeTagIds.some((todoTagId) => todoTagId !== tagId && remainingTagIds.has(todoTagId))
     );
-    if (wouldLeaveCompletedTodoUntagged) {
+    if (wouldLeaveAchievementTodoUntagged) {
       setBlockedDeleteTypeTagId(tagId);
       setPendingDeleteTypeTagId(null);
       return;
@@ -781,6 +1617,15 @@ function IncompleteTodosPage({
     if (selectedEligibleTodoIds.length === 0) return;
     onAddTodayPlanTodos(selectedEligibleTodoIds);
     setSelectedTodayPlanTodoIds((current) => current.filter((todoId) => !selectedEligibleTodoIds.includes(todoId)));
+  }
+
+  function toggleTodoCheckIn(todo: Todo) {
+    const hasValidTag = todo.typeTagIds.some((tagId) => data.typeTags.some((tag) => tag.id === tagId));
+    if (!hasValidTag) {
+      setCheckInTagDialogTodo(todo);
+      return;
+    }
+    onToggleTodoCheckIn(todo.id);
   }
 
   return (
@@ -837,7 +1682,7 @@ function IncompleteTodosPage({
               <small>{usageCount} 项</small>
               {isDeleteBlocked ? (
                 <>
-                  <small className="type-tag-delete-blocked">已完成待办仍在使用此唯一标签，无法删除。</small>
+                  <small className="type-tag-delete-blocked">已有完成或打卡成果仍在使用此唯一标签，无法删除。</small>
                   <button className="ghost-button" type="button" onClick={() => setBlockedDeleteTypeTagId(null)}>
                     知道了
                   </button>
@@ -899,6 +1744,7 @@ function IncompleteTodosPage({
         onAddTodo={onAddTodo}
         onDeleteTodo={onDeleteTodo}
         onUpdateTodo={onUpdateTodo}
+        onToggleTodoCheckIn={toggleTodoCheckIn}
         onCompletionBlocked={setCompletionTagDialogTodo}
       />
       <TodoTable
@@ -912,10 +1758,12 @@ function IncompleteTodosPage({
         onAddTodo={onAddTodo}
         onDeleteTodo={onDeleteTodo}
         onUpdateTodo={onUpdateTodo}
+        onToggleTodoCheckIn={toggleTodoCheckIn}
         onCompletionBlocked={setCompletionTagDialogTodo}
       />
       {completionTagDialogTodo && (
         <CompletionTagDialog
+          action="完成"
           todoTitle={completionTagDialogTodo.title}
           onClose={() => setCompletionTagDialogTodo(null)}
           onConfirm={() => {
@@ -923,6 +1771,19 @@ function IncompleteTodosPage({
             tags?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
             tags?.querySelector<HTMLInputElement>('input:not(:disabled)')?.focus();
             setCompletionTagDialogTodo(null);
+          }}
+        />
+      )}
+      {checkInTagDialogTodo && (
+        <CompletionTagDialog
+          action="打卡"
+          todoTitle={checkInTagDialogTodo.title}
+          onClose={() => setCheckInTagDialogTodo(null)}
+          onConfirm={() => {
+            const tags = document.getElementById(`todo-type-tags-${checkInTagDialogTodo.id}`);
+            tags?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+            tags?.querySelector<HTMLInputElement>('input:not(:disabled)')?.focus();
+            setCheckInTagDialogTodo(null);
           }}
         />
       )}
@@ -940,6 +1801,7 @@ function TodoTable({
   onToggleTodayPlanSelection,
   onAddTodo,
   onUpdateTodo,
+  onToggleTodoCheckIn,
   onDeleteTodo,
   onCompletionBlocked
 }: {
@@ -952,6 +1814,7 @@ function TodoTable({
   onToggleTodayPlanSelection: (todoId: string, checked: boolean) => void;
   onAddTodo: (todo: Todo) => void;
   onUpdateTodo: (todo: Todo, patch: Partial<Todo>) => void;
+  onToggleTodoCheckIn: (todo: Todo) => void;
   onDeleteTodo: (todoId: string) => void;
   onCompletionBlocked: (todo: Todo) => void;
 }) {
@@ -1007,6 +1870,7 @@ function TodoTable({
           <span>日期</span>
           <span>状态</span>
           <span>期限</span>
+          <span>打卡</span>
           <span>紧急 / 重要</span>
           <span>类型标签</span>
           <span>操作</span>
@@ -1023,6 +1887,7 @@ function TodoTable({
             onAddTodo={onAddTodo}
             onDeleteTodo={onDeleteTodo}
             onUpdateTodo={onUpdateTodo}
+            onToggleTodoCheckIn={onToggleTodoCheckIn}
             onCompletionBlocked={onCompletionBlocked}
             expandedTodoIds={expandedTodoIds}
             onToggleTodoChildren={toggleTodoChildren}
@@ -1043,6 +1908,7 @@ function TodoRows({
   onToggleTodayPlanSelection,
   onAddTodo,
   onUpdateTodo,
+  onToggleTodoCheckIn,
   onDeleteTodo,
   onCompletionBlocked,
   expandedTodoIds,
@@ -1057,6 +1923,7 @@ function TodoRows({
   onToggleTodayPlanSelection: (todoId: string, checked: boolean) => void;
   onAddTodo: (todo: Todo) => void;
   onUpdateTodo: (todo: Todo, patch: Partial<Todo>) => void;
+  onToggleTodoCheckIn: (todo: Todo) => void;
   onDeleteTodo: (todoId: string) => void;
   onCompletionBlocked: (todo: Todo) => void;
   expandedTodoIds: Set<string>;
@@ -1079,6 +1946,7 @@ function TodoRows({
         onAddTodo={onAddTodo}
         onDeleteTodo={onDeleteTodo}
         onUpdateTodo={onUpdateTodo}
+        onToggleTodoCheckIn={onToggleTodoCheckIn}
         onCompletionBlocked={onCompletionBlocked}
         hasChildren={hasChildren}
         isExpanded={isExpanded}
@@ -1097,6 +1965,7 @@ function TodoRows({
           onAddTodo={onAddTodo}
           onDeleteTodo={onDeleteTodo}
           onUpdateTodo={onUpdateTodo}
+          onToggleTodoCheckIn={onToggleTodoCheckIn}
           onCompletionBlocked={onCompletionBlocked}
           expandedTodoIds={expandedTodoIds}
           onToggleTodoChildren={onToggleTodoChildren}
@@ -1115,6 +1984,7 @@ function TodoRow({
   onToggleTodayPlanSelection,
   onAddTodo,
   onUpdateTodo,
+  onToggleTodoCheckIn,
   onDeleteTodo,
   onCompletionBlocked,
   hasChildren,
@@ -1129,6 +1999,7 @@ function TodoRow({
   onToggleTodayPlanSelection: (todoId: string, checked: boolean) => void;
   onAddTodo: (todo: Todo) => void;
   onUpdateTodo: (todo: Todo, patch: Partial<Todo>) => void;
+  onToggleTodoCheckIn: (todo: Todo) => void;
   onDeleteTodo: (todoId: string) => void;
   onCompletionBlocked: (todo: Todo) => void;
   hasChildren: boolean;
@@ -1220,6 +2091,7 @@ function TodoRow({
         <option value="short">短期</option>
         <option value="long">长期</option>
       </select>
+      <TodoCheckInCell todo={todo} onToggle={() => onToggleTodoCheckIn(todo)} />
       <div className="mini-checks">
         {(Object.keys(urgencyLabels) as UrgencyTag[]).map((tag) => (
           <label key={tag}>
@@ -1259,11 +2131,34 @@ function TodoRow({
   );
 }
 
+function TodoCheckInCell({ todo, onToggle }: { todo: Todo; onToggle: () => void }) {
+  if (todo.term !== 'long') return <span className="checkin-cell checkin-empty">-</span>;
+
+  const checkedInToday = todo.checkInDates.includes(toDateKey());
+  return (
+    <div className="checkin-cell">
+      <span>累计 {todo.checkInDates.length} 次</span>
+      <button
+        className={checkedInToday ? 'checkin-button checked' : 'checkin-button'}
+        type="button"
+        aria-label={`${checkedInToday ? '撤销' : ''}${todo.title} 今日打卡`}
+        aria-pressed={checkedInToday}
+        onClick={onToggle}
+      >
+        <CalendarCheck2 size={16} />
+        {checkedInToday ? '今日已打卡' : '今日打卡'}
+      </button>
+    </div>
+  );
+}
+
 function CompletionTagDialog({
+  action,
   todoTitle,
   onClose,
   onConfirm
 }: {
+  action: '完成' | '打卡';
   todoTitle: string;
   onClose: () => void;
   onConfirm: () => void;
@@ -1271,8 +2166,8 @@ function CompletionTagDialog({
   return (
     <div className="completion-dialog-backdrop" role="presentation">
       <section className="completion-dialog" role="alertdialog" aria-modal="true" aria-labelledby="completion-dialog-title">
-        <h2 id="completion-dialog-title">完成前请选择类型标签</h2>
-        <p>“{todoTitle}”尚未标注类型，无法标记为已完成。</p>
+        <h2 id="completion-dialog-title">{action}前请选择类型标签</h2>
+        <p>“{todoTitle}”尚未标注类型，无法{action === '完成' ? '标记为已完成' : '记录今日打卡'}。</p>
         <div className="completion-dialog-actions">
           <button className="ghost-button" type="button" onClick={onClose}>
             取消
@@ -1374,6 +2269,55 @@ function TypeTagBadges({ todo, typeTags }: { todo: Todo; typeTags: TypeTagView[]
   );
 }
 
+function CompletedCheckInCount({ todo }: { todo: Todo }) {
+  return (
+    <span className={todo.term === 'long' ? 'completed-checkin-count' : 'completed-checkin-count empty'}>
+      {todo.term === 'long' ? `打卡 ${todo.checkInDates.length} 次` : ''}
+    </span>
+  );
+}
+
+function AchievementStatus({
+  todo,
+  kind,
+  typeTags,
+  onUpdateTodo,
+  onCompletionBlocked
+}: {
+  todo: Todo;
+  kind: TodoAchievementKind | null;
+  typeTags: TypeTagView[];
+  onUpdateTodo: (todo: Todo, patch: Partial<Todo>) => void;
+  onCompletionBlocked: (todo: Todo) => void;
+}) {
+  if (kind === 'completed') {
+    return (
+      <div className="done-status-stack">
+        <CompletedStatusSelect todo={todo} typeTags={typeTags} onUpdateTodo={onUpdateTodo} onCompletionBlocked={onCompletionBlocked} />
+        {isCompletedLate(todo) && <span className="done-status overdue-completed">逾期完成</span>}
+      </div>
+    );
+  }
+
+  const actualStatus = todo.status === 'archived' ? '已归档' : statusLabels[todo.status];
+  return (
+    <div className="done-status-stack">
+      {kind === 'checkIn' && <span className="done-status checked-in">已打卡</span>}
+      <span className="done-status actual-status">{actualStatus}</span>
+    </div>
+  );
+}
+
+function AchievementIcon({ kind }: { kind: TodoAchievementKind | null }) {
+  return kind === 'checkIn' ? <CalendarCheck2 size={18} /> : <CheckCircle2 size={18} />;
+}
+
+function achievementTime(todo: Todo, kind: TodoAchievementKind | null) {
+  if (kind === 'completed') return completedTime(todo);
+  if (kind === 'checkIn') return '当日打卡';
+  return '-';
+}
+
 function CompletedTodosPage({
   data,
   onUpdateTodo,
@@ -1389,7 +2333,7 @@ function CompletedTodosPage({
   const [filters, setFilters] = useState<TodoFilterState>(defaultTodoFilters);
   const completedGroups = filterCompletedTodoGroups(buildCompletedTodoGroups(data.todos, date), filters);
   const reflection = data.reflections.find((item) => item.date === date)?.content ?? '';
-  const typeTagShares = getCompletedTypeTagShares(data.todos, data.typeTags);
+  const typeTagShares = getAchievementTypeTagShares(data.todos, data.typeTags);
   const [completionTagDialogTodo, setCompletionTagDialogTodo] = useState<Todo | null>(null);
   const [expandedCompletedParentIds, setExpandedCompletedParentIds] = useState<Set<string>>(() => new Set());
 
@@ -1441,7 +2385,7 @@ function CompletedTodosPage({
         </div>
       )}
       <div className="done-table">
-        {completedGroups.length === 0 && <p className="empty-state table-empty">这一天暂无完成记录。</p>}
+        {completedGroups.length === 0 && <p className="empty-state table-empty">这一天暂无完成或打卡记录。</p>}
         {completedGroups.map((group) => {
           const hasChildren = group.children.length > 0;
           const isExpanded = isCompletedGroupExpanded(group);
@@ -1462,22 +2406,36 @@ function CompletedTodosPage({
                 ) : (
                   <span className="tree-toggle-spacer" aria-hidden="true" />
                 )}
-                <CheckCircle2 size={18} />
+                <AchievementIcon kind={group.parentAchievementKind} />
                 <strong>{group.parent.title}</strong>
-                <CompletedStatusSelect todo={group.parent} typeTags={data.typeTags} onUpdateTodo={onUpdateTodo} onCompletionBlocked={setCompletionTagDialogTodo} />
+                <AchievementStatus
+                  todo={group.parent}
+                  kind={group.parentAchievementKind}
+                  typeTags={data.typeTags}
+                  onUpdateTodo={onUpdateTodo}
+                  onCompletionBlocked={setCompletionTagDialogTodo}
+                />
                 <TypeTagBadges todo={group.parent} typeTags={data.typeTags} />
+                <CompletedCheckInCount todo={group.parent} />
                 <span>{group.parent.pomodoroCount} 个番茄</span>
-                <span>{group.parentCompletedOnDate ? completedTime(group.parent) : '-'}</span>
+                <span>{achievementTime(group.parent, group.parentAchievementKind)}</span>
               </div>
-              {hasChildren && isExpanded && group.children.map((child) => (
+              {hasChildren && isExpanded && group.children.map(({ todo: child, achievementKind }) => (
                 <div className="done-row done-child" key={child.id}>
                   <span className="tree-toggle-spacer" aria-hidden="true" />
                   <span className="branch-mark">└</span>
                   <strong>{child.title}</strong>
-                  <CompletedStatusSelect todo={child} typeTags={data.typeTags} onUpdateTodo={onUpdateTodo} onCompletionBlocked={setCompletionTagDialogTodo} />
+                  <AchievementStatus
+                    todo={child}
+                    kind={achievementKind}
+                    typeTags={data.typeTags}
+                    onUpdateTodo={onUpdateTodo}
+                    onCompletionBlocked={setCompletionTagDialogTodo}
+                  />
                   <TypeTagBadges todo={child} typeTags={data.typeTags} />
+                  <CompletedCheckInCount todo={child} />
                   <span>{child.pomodoroCount} 个番茄</span>
-                  <span>{completedTime(child)}</span>
+                  <span>{achievementTime(child, achievementKind)}</span>
                 </div>
               ))}
             </div>
@@ -1490,6 +2448,7 @@ function CompletedTodosPage({
       </label>
       {completionTagDialogTodo && (
         <CompletionTagDialog
+          action="完成"
           todoTitle={completionTagDialogTodo.title}
           onClose={() => setCompletionTagDialogTodo(null)}
           onConfirm={() => {
@@ -1504,7 +2463,7 @@ function CompletedTodosPage({
 
 function CompletedTypeChart({ shares }: { shares: TypeTagShare[] }) {
   if (shares.length === 0) {
-    return <p className="empty-state analytics-empty">暂无历史完成待办，完成任务后会在这里显示类型占比。</p>;
+    return <p className="empty-state analytics-empty">暂无历史成果，完成任务或打卡后会在这里显示类型占比。</p>;
   }
 
   let offset = 0;
@@ -1521,12 +2480,12 @@ function CompletedTypeChart({ shares }: { shares: TypeTagShare[] }) {
       <div className="analytics-heading">
         <div>
           <p className="eyebrow">全历史</p>
-          <h2 id="completion-chart-title">完成类型占比</h2>
+          <h2 id="completion-chart-title">成果类型占比</h2>
         </div>
         <ChartPie size={24} aria-hidden="true" />
       </div>
       <div className="completion-chart-content">
-        <div className="type-pie-chart" role="img" aria-label={`已完成待办类型占比：${label}`} style={{ backgroundImage: `conic-gradient(${stops.join(', ')})` }}>
+        <div className="type-pie-chart" role="img" aria-label={`成果类型占比：${label}`} style={{ backgroundImage: `conic-gradient(${stops.join(', ')})` }}>
           <span>类型分布</span>
         </div>
         <ul className="type-share-legend">
@@ -1592,8 +2551,8 @@ function WeeklySummaryPage({
   const summary = getWeekSummary(data.todos, data.typeTags, data.pomodoroRecords, weekStart);
   const reflection = data.weeklyReflections.find((item) => item.weekStart === weekStart)?.content ?? '';
   const dayLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
-  const maxDailyCompleted = Math.max(...summary.dailyCompletion.map((item) => item.completedCount), 1);
-  const weeklyTodoTree = buildWeeklyTodoTree(data.todos, summary.completedTodos);
+  const maxDailyAchievements = Math.max(...summary.dailyAchievements.map((item) => item.achievementCount), 1);
+  const weeklyTodoTree = buildWeeklyTodoTree(data.todos, summary.achievements);
 
   function moveWeek(offset: number) {
     const next = new Date(`${weekStart}T12:00:00`);
@@ -1622,7 +2581,7 @@ function WeeklySummaryPage({
       </div>
 
       <div className="weekly-metrics" aria-label="本周统计">
-        <WeeklyMetric label="完成待办" value={`${summary.completedTodoCount} 项`} />
+        <WeeklyMetric label="本周成果" value={`${summary.achievementCount} 项`} />
         <WeeklyMetric label="完成番茄" value={`${summary.completedPomodoroCount} 个`} />
         <WeeklyMetric label="实际专注" value={`${summary.focusMinutes} 分钟`} />
         <WeeklyMetric label="主要类型" value={summary.topTypeName ?? '暂无'} />
@@ -1630,15 +2589,15 @@ function WeeklySummaryPage({
 
       <section className="weekly-section weekly-trend" aria-labelledby="weekly-trend-title">
         <div className="analytics-heading">
-          <h2 id="weekly-trend-title">每日完成</h2>
-          <span>{summary.completedTodoCount} 项</span>
+          <h2 id="weekly-trend-title">每日成果</h2>
+          <span>{summary.achievementCount} 项</span>
         </div>
-        <div className="weekly-bar-chart" role="img" aria-label={`本周每日完成待办：${summary.dailyCompletion.map((item, index) => `${dayLabels[index]} ${item.completedCount} 项`).join('，')}`}>
-          {summary.dailyCompletion.map((item, index) => (
+        <div className="weekly-bar-chart" role="img" aria-label={`本周每日成果：${summary.dailyAchievements.map((item, index) => `${dayLabels[index]} ${item.achievementCount} 项`).join('，')}`}>
+          {summary.dailyAchievements.map((item, index) => (
             <div className="weekly-bar-item" key={item.date}>
-              <span className="weekly-bar-value">{item.completedCount}</span>
+              <span className="weekly-bar-value">{item.achievementCount}</span>
               <div className="weekly-bar-track">
-                <div className="weekly-bar-fill" style={{ height: `${(item.completedCount / maxDailyCompleted) * 100}%` }} />
+                <div className="weekly-bar-fill" style={{ height: `${(item.achievementCount / maxDailyAchievements) * 100}%` }} />
               </div>
               <small>{dayLabels[index]}</small>
             </div>
@@ -1648,11 +2607,11 @@ function WeeklySummaryPage({
 
       <section className="weekly-section" aria-labelledby="weekly-todos-title">
         <div className="analytics-heading">
-          <h2 id="weekly-todos-title">本周完成任务</h2>
-          <span>{summary.completedTodoCount} 项</span>
+          <h2 id="weekly-todos-title">本周成果任务</h2>
+          <span>{summary.achievementTodos.length} 项任务</span>
         </div>
-        {summary.completedTodos.length === 0 ? (
-          <p className="empty-state">这一周还没有完成待办。</p>
+        {summary.achievementTodos.length === 0 ? (
+          <p className="empty-state">这一周还没有完成或打卡成果。</p>
         ) : (
           <div className="weekly-task-list">
             {weeklyTodoTree.map((node) => (
@@ -1676,14 +2635,16 @@ function WeeklySummaryPage({
 }
 
 function WeeklyTodoTreeItem({ node, depth = 0 }: { node: WeeklyTodoNode; depth?: number }) {
-  const isIncompleteParent = node.children.length > 0 && node.todo.status !== 'completed';
+  const hasAchievement = node.completedThisWeek || node.checkInCountThisWeek > 0;
+  const isIncompleteParent = node.children.length > 0 && !hasAchievement && node.todo.status !== 'completed';
 
   return (
     <>
-      <div className={node.completedThisWeek ? 'weekly-task-item completed' : 'weekly-task-item parent'} style={{ paddingLeft: `${depth * 22}px` }}>
-        {node.completedThisWeek ? <CheckCircle2 size={17} aria-hidden="true" /> : <span className="weekly-tree-branch">└</span>}
+      <div className={hasAchievement ? 'weekly-task-item completed' : 'weekly-task-item parent'} style={{ paddingLeft: `${depth * 22}px` }}>
+        {node.completedThisWeek ? <CheckCircle2 size={17} aria-hidden="true" /> : node.checkInCountThisWeek > 0 ? <CalendarCheck2 size={17} aria-hidden="true" /> : <span className="weekly-tree-branch">└</span>}
         <strong>{node.todo.title}</strong>
         {isIncompleteParent && <em className="weekly-parent-status">进行中</em>}
+        {node.checkInCountThisWeek > 0 && <span>本周打卡 {node.checkInCountThisWeek} 次</span>}
         {node.completedThisWeek && <span>{node.todo.pomodoroCount} 个番茄</span>}
         {node.completedThisWeek && <time dateTime={node.todo.completedAt ?? undefined}>{node.todo.completedAt?.slice(0, 10)}</time>}
       </div>
@@ -1705,27 +2666,107 @@ function WeeklyMetric({ label, value }: { label: string; value: string }) {
 
 function BacklogPage({
   items,
+  tags,
   onAddItem,
   onUpdateItem,
-  onDeleteItem
+  onDeleteItem,
+  onAddTag,
+  onDeleteTag,
+  onNavigate
 }: {
   items: BacklogItem[];
+  tags: InspirationTag[];
   onAddItem: (title: string) => void;
   onUpdateItem: (item: BacklogItem) => void;
   onDeleteItem: (itemId: string) => void;
+  onAddTag: (name: string, color: string) => void;
+  onDeleteTag: (tagId: string) => void;
+  onNavigate: (page: Page) => void;
 }) {
   const [title, setTitle] = useState('');
+  const [tagName, setTagName] = useState('');
+  const [tagColor, setTagColor] = useState('#315f4d');
+  const [fountainAnimation, setFountainAnimation] = useState<'envelope' | 'glow' | null>(null);
+  const [pendingDeleteTagId, setPendingDeleteTagId] = useState<string | null>(null);
+  const [blockedDeleteTagId, setBlockedDeleteTagId] = useState<string | null>(null);
+  const [completionBlockedItem, setCompletionBlockedItem] = useState<BacklogItem | null>(null);
+  const [tagFocusItemId, setTagFocusItemId] = useState<string | null>(null);
+  const animationTimer = useRef<number | null>(null);
+  const activeItems = items.filter((item) => item.status === 'active');
+  const groupedItems = [
+    { id: null, name: '待分类', color: '#74634f', items: activeItems.filter((item) => !item.tagId) },
+    ...tags.map((tag) => ({ ...tag, items: activeItems.filter((item) => item.tagId === tag.id) }))
+  ].filter((group) => group.items.length > 0);
+
+  useEffect(() => {
+    return () => {
+      if (animationTimer.current) window.clearTimeout(animationTimer.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!tagFocusItemId) return;
+    document.getElementById(`inspiration-tag-${tagFocusItemId}`)?.focus();
+    setTagFocusItemId(null);
+  }, [tagFocusItemId]);
+
+  function prefersReducedMotion() {
+    return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+  }
+
+  function playFountainAnimation(animation: 'envelope' | 'glow') {
+    if (prefersReducedMotion()) return;
+    if (animationTimer.current) window.clearTimeout(animationTimer.current);
+    setFountainAnimation(null);
+    window.requestAnimationFrame(() => setFountainAnimation(animation));
+    animationTimer.current = window.setTimeout(() => setFountainAnimation(null), 1250);
+  }
 
   function addItem() {
     const trimmed = title.trim();
     if (!trimmed) return;
     onAddItem(trimmed);
     setTitle('');
+    playFountainAnimation('envelope');
+  }
+
+  function addTag() {
+    const trimmed = tagName.trim();
+    if (!trimmed || tags.some((tag) => tag.name === trimmed)) return;
+    onAddTag(trimmed, tagColor);
+    setTagName('');
+  }
+
+  function deleteTag(tagId: string) {
+    if (items.some((item) => item.tagId === tagId)) {
+      setBlockedDeleteTagId(tagId);
+      setPendingDeleteTagId(null);
+      return;
+    }
+    onDeleteTag(tagId);
+    setPendingDeleteTagId(null);
+  }
+
+  function completeItem(item: BacklogItem) {
+    const hasValidTag = Boolean(item.tagId && tags.some((tag) => tag.id === item.tagId));
+    if (!hasValidTag) {
+      setCompletionBlockedItem(item);
+      return;
+    }
+    onUpdateItem({ ...item, status: 'completed', updatedAt: currentIso() });
+    playFountainAnimation('glow');
   }
 
   return (
     <section className="page-panel table-page">
-      <PageTitle eyebrow="待思" title="灵感池" />
+      <div className="backlog-page-heading">
+        <PageTitle eyebrow="待思" title="灵感池" />
+        <button className="ghost-button" type="button" onClick={() => onNavigate('completedBacklog')}>
+          <Archive size={17} />
+          已完成灵感
+        </button>
+      </div>
+      <InspirationFountain animation={fountainAnimation} />
       <div className="toolbar">
         <input
           aria-label="新增灵感"
@@ -1741,33 +2782,197 @@ function BacklogPage({
           新增
         </button>
       </div>
-      <div className="backlog-table">
-        <div className="backlog-row table-head">
-          <span>已构思</span>
-          <span>事项 / 问题</span>
-          <span>操作</span>
-        </div>
-        {items.map((item) => (
-          <div className="backlog-row" key={item.id}>
-            <input
-              aria-label={`${item.title} 已构思完成`}
-              type="checkbox"
-              checked={item.isPlanned}
-              onChange={(event) => onUpdateItem({ ...item, isPlanned: event.target.checked, updatedAt: currentIso() })}
-            />
-            <input
-              aria-label={`${item.title} 内容`}
-              value={item.title}
-              onChange={(event) => onUpdateItem({ ...item, title: event.target.value, updatedAt: currentIso() })}
-            />
-            <button className="ghost-button icon-button" type="button" onClick={() => onDeleteItem(item.id)} aria-label={`删除 ${item.title}`}>
-              <Trash2 size={16} />
-            </button>
-          </div>
-        ))}
-        {items.length === 0 && <p className="empty-state table-empty">暂无灵感记录。</p>}
+      <div className="toolbar tag-toolbar inspiration-tag-toolbar">
+        <input aria-label="新灵感标签名" placeholder="新增灵感标签" value={tagName} onChange={(event) => setTagName(event.target.value)} />
+        <input aria-label="灵感标签颜色" type="color" value={tagColor} onChange={(event) => setTagColor(event.target.value)} />
+        <button type="button" onClick={addTag}>
+          <Tag size={17} />
+          加标签
+        </button>
       </div>
+      <div className="type-tag-library inspiration-tag-library" aria-label="灵感标签库">
+        <span>灵感标签</span>
+        {tags.length === 0 && <em>暂无标签，可先记录后分类。</em>}
+        {tags.map((tag) => {
+          const usageCount = items.filter((item) => item.tagId === tag.id).length;
+          const isConfirming = pendingDeleteTagId === tag.id;
+          const isBlocked = blockedDeleteTagId === tag.id;
+          return (
+            <div key={tag.id} className={isConfirming ? 'type-tag-chip confirming' : 'type-tag-chip'} style={{ borderColor: tag.color }}>
+              <span className="type-tag-chip-name"><i style={{ backgroundColor: tag.color }} />{tag.name}</span>
+              <small>{usageCount} 项</small>
+              {isBlocked ? (
+                <>
+                  <small className="type-tag-delete-blocked">仍有灵感使用此标签，无法删除。</small>
+                  <button className="ghost-button" type="button" onClick={() => setBlockedDeleteTagId(null)}>知道了</button>
+                </>
+              ) : isConfirming ? (
+                <>
+                  <button className="danger-button" type="button" onClick={() => deleteTag(tag.id)}>确认删除</button>
+                  <button className="ghost-button" type="button" onClick={() => setPendingDeleteTagId(null)}>取消</button>
+                </>
+              ) : (
+                <button className="ghost-button icon-button" type="button" onClick={() => setPendingDeleteTagId(tag.id)} aria-label={`准备删除灵感标签 ${tag.name}`} title={`删除 ${tag.name}`}>
+                  <Trash2 size={14} />
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="inspiration-groups">
+        {groupedItems.map((group) => (
+          <section className="inspiration-group" key={group.id ?? 'unclassified'}>
+            <div className="inspiration-group-heading">
+              <span style={{ backgroundColor: group.color }} />
+              <h2>{group.name}</h2>
+              <small>{group.items.length} 项</small>
+            </div>
+            <div className="backlog-table">
+              {group.items.map((item) => (
+                <div className="backlog-row inspiration-row" key={item.id}>
+                  <button className="inspiration-complete-button" type="button" onClick={() => completeItem(item)} aria-label={`完成灵感 ${item.title}`} title="标记为已完成">
+                    <CheckCircle2 size={18} />
+                  </button>
+                  <input aria-label={`${item.title} 内容`} value={item.title} onChange={(event) => onUpdateItem({ ...item, title: event.target.value, updatedAt: currentIso() })} />
+                  <select id={`inspiration-tag-${item.id}`} aria-label={`${item.title} 灵感标签`} value={item.tagId ?? ''} onChange={(event) => onUpdateItem({ ...item, tagId: event.target.value || null, updatedAt: currentIso() })}>
+                    <option value="">待分类</option>
+                    {tags.map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}
+                  </select>
+                  <button className="ghost-button icon-button" type="button" onClick={() => onDeleteItem(item.id)} aria-label={`删除 ${item.title}`}><Trash2 size={16} /></button>
+                </div>
+              ))}
+            </div>
+          </section>
+        ))}
+        {activeItems.length === 0 && <p className="empty-state table-empty">灵感池暂时为空，写下一条新的想法吧。</p>}
+      </div>
+      {completionBlockedItem && (
+        <div className="completion-dialog-backdrop" role="presentation">
+          <section className="completion-dialog" role="alertdialog" aria-modal="true" aria-labelledby="inspiration-completion-dialog-title">
+            <h2 id="inspiration-completion-dialog-title">完成前请选择灵感标签</h2>
+            <p>“{completionBlockedItem.title}”尚未分类，无法归档为已完成灵感。</p>
+            <div className="completion-dialog-actions">
+              <button className="ghost-button" type="button" onClick={() => setCompletionBlockedItem(null)}>取消</button>
+              <button type="button" onClick={() => { setTagFocusItemId(completionBlockedItem.id); setCompletionBlockedItem(null); }}>前往选择标签</button>
+            </div>
+          </section>
+        </div>
+      )}
     </section>
+  );
+}
+
+function CompletedInspirationPage({
+  items,
+  tags,
+  onUpdateItem,
+  onNavigate
+}: {
+  items: BacklogItem[];
+  tags: InspirationTag[];
+  onUpdateItem: (item: BacklogItem) => void;
+  onNavigate: (page: Page) => void;
+}) {
+  const [detailItemId, setDetailItemId] = useState<string | null>(null);
+  const completedItems = items.filter((item) => item.status === 'completed');
+  const detailItem = completedItems.find((item) => item.id === detailItemId) ?? null;
+  const groupedItems = tags
+    .map((tag) => ({ ...tag, items: completedItems.filter((item) => item.tagId === tag.id) }))
+    .filter((group) => group.items.length > 0);
+
+  return (
+    <section className="page-panel table-page completed-inspiration-page">
+      <div className="backlog-page-heading">
+        <PageTitle eyebrow="已悟" title="已完成灵感" />
+        <button className="ghost-button" type="button" onClick={() => onNavigate('backlog')}>返回灵感池</button>
+      </div>
+      {completedItems.length === 0 ? (
+        <p className="empty-state table-empty">还没有已完成灵感。</p>
+      ) : (
+        <div className="inspiration-groups">
+          {groupedItems.map((group) => (
+            <section className="inspiration-group" key={group.id}>
+              <div className="inspiration-group-heading"><span style={{ backgroundColor: group.color }} /><h2>{group.name}</h2><small>{group.items.length} 项</small></div>
+              <div className="completed-inspiration-list">
+                {group.items.map((item) => (
+                  <div className="completed-inspiration-item" key={item.id}>
+                    <CheckCircle2 size={18} aria-hidden="true" />
+                    <strong>{item.title}</strong>
+                    <button className="ghost-button" type="button" onClick={() => setDetailItemId(item.id)}><Eye size={17} />查看详情</button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
+      {detailItem && (
+        <InspirationDetailDialog
+          key={detailItem.id}
+          item={detailItem}
+          onClose={() => setDetailItemId(null)}
+          onUpdateItem={onUpdateItem}
+          onReopen={() => {
+            onUpdateItem({ ...detailItem, status: 'active', updatedAt: currentIso() });
+            setDetailItemId(null);
+          }}
+        />
+      )}
+    </section>
+  );
+}
+
+function InspirationDetailDialog({ item, onClose, onUpdateItem, onReopen }: { item: BacklogItem; onClose: () => void; onUpdateItem: (item: BacklogItem) => void; onReopen: () => void }) {
+  const [view, setView] = useState<'edit' | 'preview'>('edit');
+  return (
+    <div className="completion-dialog-backdrop" role="presentation">
+      <section className="inspiration-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="inspiration-detail-title">
+        <header>
+          <div><p className="eyebrow">完成灵感</p><h2 id="inspiration-detail-title">查看详情</h2></div>
+          <button className="ghost-button icon-button" type="button" onClick={onClose} aria-label="关闭详情">×</button>
+        </header>
+        <div className="inspiration-detail-grid">
+          <aside><span>灵感标题</span><strong>{item.title}</strong></aside>
+          <section>
+            <div className="detail-editor-heading"><span>完成细节</span><div><button className={view === 'edit' ? 'detail-tab active' : 'detail-tab'} type="button" onClick={() => setView('edit')}>编辑</button><button className={view === 'preview' ? 'detail-tab active' : 'detail-tab'} type="button" onClick={() => setView('preview')}>预览</button></div></div>
+            {view === 'edit' ? (
+              <textarea aria-label={`${item.title} 完成细节`} placeholder="支持 Markdown：标题、列表、引用、代码块和链接" value={item.completionDetails} onChange={(event) => onUpdateItem({ ...item, completionDetails: event.target.value, updatedAt: currentIso() })} />
+            ) : (
+              <div className="markdown-preview">{item.completionDetails.trim() ? <ReactMarkdown>{item.completionDetails}</ReactMarkdown> : <p>暂无完成细节。</p>}</div>
+            )}
+          </section>
+        </div>
+        <footer><button className="ghost-button" type="button" onClick={onReopen}>重新打开</button><button type="button" onClick={onClose}>完成</button></footer>
+      </section>
+    </div>
+  );
+}
+
+function InspirationFountain({ animation }: { animation: 'envelope' | 'glow' | null }) {
+  return (
+    <div
+      className={`inspiration-fountain${animation ? ` animation-${animation}` : ''}`}
+      data-testid="inspiration-fountain"
+      aria-hidden="true"
+    >
+      <img className="fountain-photo" src={inspirationFountainImage} alt="" />
+      <div className="fountain-photo-vignette" />
+      <div className="pool-ambient-shimmer">
+        <span />
+        <span />
+      </div>
+      <span className="water-ripple ripple-one" />
+      <span className="water-ripple ripple-two" />
+      <div className="fountain-completion-glow" />
+      <div className="fountain-sparkles">
+        <i /><i /><i /><i />
+      </div>
+      <div className="inspiration-envelope">
+        <Send size={20} fill="currentColor" strokeWidth={1.8} />
+        <Sparkles className="envelope-sparkle" size={18} />
+      </div>
+    </div>
   );
 }
 

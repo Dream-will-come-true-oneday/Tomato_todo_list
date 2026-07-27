@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Todo } from './types';
-import { getTodoTimeBadge } from './todoStatus';
+import { getTodoTimeBadge, isCompletedLate } from './todoStatus';
 
 const baseTodo: Todo = {
   id: 'todo-1',
@@ -17,7 +17,8 @@ const baseTodo: Todo = {
   createdAt: '2026-07-16T00:00:00.000Z',
   updatedAt: '2026-07-16T00:00:00.000Z',
   completedAt: null,
-  pomodoroCount: 0
+  pomodoroCount: 0,
+  checkInDates: []
 };
 
 describe('getTodoTimeBadge', () => {
@@ -55,5 +56,24 @@ describe('getTodoTimeBadge', () => {
     );
 
     expect(badge).toEqual({ tone: 'info', label: '今天开始' });
+  });
+
+  it('recognizes late completion for date-only and timed deadlines', () => {
+    expect(
+      isCompletedLate({
+        ...baseTodo,
+        status: 'completed',
+        dueAt: '2026-07-16',
+        completedAt: '2026-07-17T00:00:00.000Z'
+      })
+    ).toBe(true);
+    expect(
+      isCompletedLate({
+        ...baseTodo,
+        status: 'completed',
+        dueAt: '2026-07-16T20:00:00.000Z',
+        completedAt: '2026-07-16T19:59:59.000Z'
+      })
+    ).toBe(false);
   });
 });
