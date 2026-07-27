@@ -18,7 +18,8 @@ const todo: Todo = {
   createdAt: '2026-07-16T00:00:00.000Z',
   updatedAt: '2026-07-16T00:00:00.000Z',
   completedAt: null,
-  pomodoroCount: 0
+  pomodoroCount: 0,
+  checkInDates: []
 };
 
 const records: PomodoroRecord[] = [

@@ -12,7 +12,7 @@ export function isIncompleteTodo(todo: Todo) {
 }
 
 export function isTodayPomodoroTodo(todo: Todo, today = toDateKey()) {
-  return isIncompleteTodo(todo) && todo.startAt === today && todo.dueAt === today;
+  return isIncompleteTodo(todo) && todo.startAt?.slice(0, 10) === today && todo.dueAt?.slice(0, 10) === today;
 }
 
 export function isCompletedOn(todo: Todo, dateKey: string) {

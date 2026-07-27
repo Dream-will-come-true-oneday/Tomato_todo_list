@@ -1,5 +1,7 @@
 import {
+  Archive,
   ArrowUpRight,
+  CalendarCheck2,
   CalendarDays,
   CalendarRange,
   BellRing,
@@ -8,26 +10,33 @@ import {
   ChevronRight,
   ChartPie,
   Clock3,
+  Eye,
   Home,
   Lightbulb,
   ListTodo,
   Plus,
   ScrollText,
+  Send,
+  Sparkles,
+  Tag,
   Trash2
 } from 'lucide-react';
-import { useEffect, useMemo, useReducer, useState } from 'react';
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import type { RefObject } from 'react';
+import ReactMarkdown from 'react-markdown';
 import heroImage from './assets/longchang-awakening-hero.png';
+import inspirationFountainImage from './assets/inspiration-cupid-fountain.png';
 import pomodoroBackgroundImage from './assets/longchang-awakening-pomodoro.png';
-import TimerPanel from './components/TimerPanel';
+import TimerPanel, { type TimerPanelHandle, type TimerSnapshot } from './components/TimerPanel';
 import { appReducer } from './domain/appReducer';
-import { createBacklogItem, createDefaultTodo, createTypeTag } from './domain/defaultData';
+import { createBacklogItem, createDefaultTodo, createInspirationTag, createTypeTag } from './domain/defaultData';
 import { loadAppData, saveAppData } from './domain/storage';
 import { isCompletedOn, isIncompleteTodo, isTodayPomodoroTodo, toDateKey } from './domain/todoFilters';
-import { getTodoTimeBadge } from './domain/todoStatus';
+import { getTodoTimeBadge, isCompletedLate } from './domain/todoStatus';
 import { buildWeeklyTodoTree, getCompletedTypeTagShares, getWeekStart, getWeekSummary, type TypeTagShare, type WeeklyTodoNode } from './domain/reporting';
-import type { BacklogItem, DailyPomodoroPlan, PomodoroRecord, TimerPreset, Todo, TodoStatus, TodoTerm, UrgencyTag } from './domain/types';
+import type { BacklogItem, DailyPomodoroPlan, InspirationTag, PomodoroRecord, TimerPreset, Todo, TodoStatus, TodoTerm, UrgencyTag } from './domain/types';
 
-type Page = 'home' | 'pomodoro' | 'todoHub' | 'todayPlan' | 'incomplete' | 'completed' | 'weeklySummary' | 'backlog';
+type Page = 'home' | 'pomodoro' | 'todoHub' | 'todayPlan' | 'incomplete' | 'completed' | 'weeklySummary' | 'backlog' | 'completedBacklog';
 
 type CompletedTodoGroup = {
   parent: Todo;
@@ -76,7 +85,7 @@ function currentIso() {
 }
 
 function asInputDate(value: string | null) {
-  return value ?? '';
+  return value?.slice(0, 10) ?? '';
 }
 
 function nullableDate(value: string) {
@@ -194,6 +203,8 @@ export default function App() {
   const [recovered, setRecovered] = useState(initialLoad.recovered);
   const [selectedPomodoroTodoId, setSelectedPomodoroTodoId] = useState<string | null>(null);
   const [todoTagFocusId, setTodoTagFocusId] = useState<string | null>(null);
+  const [timerSnapshot, setTimerSnapshot] = useState<TimerSnapshot | null>(null);
+  const timerPanelRef = useRef<TimerPanelHandle>(null);
   const today = toDateKey();
 
   useEffect(() => {
@@ -218,6 +229,14 @@ export default function App() {
 
   const selectedPomodoroTodo = todayPlanTodos.find((todo) => todo.id === selectedPomodoroTodoId) ?? null;
 
+  function navigate(nextPage: Page) {
+    if (page === 'pomodoro' && nextPage !== 'pomodoro') {
+      const snapshot = timerPanelRef.current?.pauseAndCapture();
+      if (snapshot) setTimerSnapshot(snapshot);
+    }
+    setPage(nextPage);
+  }
+
   function updateTodo(todo: Todo, patch: Partial<Todo>) {
     dispatch({ type: 'updateTodo', todo: { ...todo, ...patch } });
   }
@@ -237,16 +256,16 @@ export default function App() {
         </div>
       )}
 
-      {page !== 'home' && <TopNav page={page} onNavigate={setPage} />}
+      {page !== 'home' && <TopNav page={page} onNavigate={navigate} />}
 
-      {page === 'home' && <HomePage onNavigate={setPage} />}
+      {page === 'home' && <HomePage onNavigate={navigate} />}
       {page === 'pomodoro' && (
         <PomodoroPage
           activePreset={activePreset}
           data={data}
           selectedTodo={selectedPomodoroTodo}
           todayTodos={todayPlanTodos}
-          onNavigate={setPage}
+          onNavigate={navigate}
           onSelectTodo={setSelectedPomodoroTodoId}
           onSetActivePreset={(presetId) => dispatch({ type: 'setActivePreset', presetId })}
           onUpdatePreset={updatePreset}
@@ -262,9 +281,11 @@ export default function App() {
           }
           onDeletePreset={(presetId) => dispatch({ type: 'deletePreset', presetId })}
           onSessionComplete={(payload) => dispatch({ type: 'completeFocusSession', ...payload })}
+          timerPanelRef={timerPanelRef}
+          timerSnapshot={timerSnapshot}
         />
       )}
-      {page === 'todoHub' && <TodoHubPage data={data} todayPlanTodos={todayPlanTodos} onNavigate={setPage} />}
+      {page === 'todoHub' && <TodoHubPage data={data} todayPlanTodos={todayPlanTodos} onNavigate={navigate} />}
       {page === 'todayPlan' && (
         <TodayPlanPage
           dateKey={today}
@@ -291,6 +312,7 @@ export default function App() {
           }
           onDeleteTodo={(todoId) => dispatch({ type: 'deleteTodo', todoId })}
           onUpdateTodo={updateTodo}
+          onToggleTodoCheckIn={(todoId) => dispatch({ type: 'toggleTodoCheckIn', todoId, date: today })}
           focusTodoId={todoTagFocusId}
           onFocusHandled={() => setTodoTagFocusId(null)}
         />
@@ -304,7 +326,7 @@ export default function App() {
           }
           onOpenTodoTags={(todoId) => {
             setTodoTagFocusId(todoId);
-            setPage('incomplete');
+            navigate('incomplete');
           }}
         />
       )}
@@ -319,9 +341,21 @@ export default function App() {
       {page === 'backlog' && (
         <BacklogPage
           items={data.backlogItems}
+          tags={data.inspirationTags}
           onAddItem={(title) => dispatch({ type: 'addBacklogItem', item: createBacklogItem(title) })}
           onDeleteItem={(itemId) => dispatch({ type: 'deleteBacklogItem', itemId })}
           onUpdateItem={(item) => dispatch({ type: 'updateBacklogItem', item })}
+          onAddTag={(name, color) => dispatch({ type: 'addInspirationTag', tag: createInspirationTag(name, color) })}
+          onDeleteTag={(tagId) => dispatch({ type: 'deleteInspirationTag', tagId })}
+          onNavigate={navigate}
+        />
+      )}
+      {page === 'completedBacklog' && (
+        <CompletedInspirationPage
+          items={data.backlogItems}
+          tags={data.inspirationTags}
+          onUpdateItem={(item) => dispatch({ type: 'updateBacklogItem', item })}
+          onNavigate={navigate}
         />
       )}
     </main>
@@ -498,7 +532,9 @@ function PomodoroPage({
   onUpdatePreset,
   onCreatePreset,
   onDeletePreset,
-  onSessionComplete
+  onSessionComplete,
+  timerPanelRef,
+  timerSnapshot
 }: {
   activePreset: TimerPreset;
   data: { presets: TimerPreset[] };
@@ -511,6 +547,8 @@ function PomodoroPage({
   onCreatePreset: () => void;
   onDeletePreset: (presetId: string) => void;
   onSessionComplete: Parameters<typeof TimerPanel>[0]['onSessionComplete'];
+  timerPanelRef: RefObject<TimerPanelHandle>;
+  timerSnapshot: TimerSnapshot | null;
 }) {
   return (
     <section
@@ -543,7 +581,13 @@ function PomodoroPage({
         </button>
         </aside>
 
-        <TimerPanel preset={activePreset} selectedTodo={selectedTodo} onSessionComplete={onSessionComplete} />
+        <TimerPanel
+          ref={timerPanelRef}
+          preset={activePreset}
+          selectedTodo={selectedTodo}
+          snapshot={timerSnapshot}
+          onSessionComplete={onSessionComplete}
+        />
 
         <aside className="page-panel side-panel preset-panel">
         <PageTitle eyebrow="钟法" title="番茄类型" />
@@ -680,6 +724,7 @@ function IncompleteTodosPage({
   onAddTodo,
   onAddTodayPlanTodos,
   onUpdateTodo,
+  onToggleTodoCheckIn,
   onDeleteTodo,
   onAddTypeTag,
   onDeleteTypeTag,
@@ -694,6 +739,7 @@ function IncompleteTodosPage({
   onAddTodo: (todo: Todo) => void;
   onAddTodayPlanTodos: (todoIds: string[]) => void;
   onUpdateTodo: (todo: Todo, patch: Partial<Todo>) => void;
+  onToggleTodoCheckIn: (todoId: string) => void;
   onDeleteTodo: (todoId: string) => void;
   onAddTypeTag: (name: string, color: string) => void;
   onDeleteTypeTag: (tagId: string) => void;
@@ -899,6 +945,7 @@ function IncompleteTodosPage({
         onAddTodo={onAddTodo}
         onDeleteTodo={onDeleteTodo}
         onUpdateTodo={onUpdateTodo}
+        onToggleTodoCheckIn={onToggleTodoCheckIn}
         onCompletionBlocked={setCompletionTagDialogTodo}
       />
       <TodoTable
@@ -912,6 +959,7 @@ function IncompleteTodosPage({
         onAddTodo={onAddTodo}
         onDeleteTodo={onDeleteTodo}
         onUpdateTodo={onUpdateTodo}
+        onToggleTodoCheckIn={onToggleTodoCheckIn}
         onCompletionBlocked={setCompletionTagDialogTodo}
       />
       {completionTagDialogTodo && (
@@ -940,6 +988,7 @@ function TodoTable({
   onToggleTodayPlanSelection,
   onAddTodo,
   onUpdateTodo,
+  onToggleTodoCheckIn,
   onDeleteTodo,
   onCompletionBlocked
 }: {
@@ -952,6 +1001,7 @@ function TodoTable({
   onToggleTodayPlanSelection: (todoId: string, checked: boolean) => void;
   onAddTodo: (todo: Todo) => void;
   onUpdateTodo: (todo: Todo, patch: Partial<Todo>) => void;
+  onToggleTodoCheckIn: (todoId: string) => void;
   onDeleteTodo: (todoId: string) => void;
   onCompletionBlocked: (todo: Todo) => void;
 }) {
@@ -1007,6 +1057,7 @@ function TodoTable({
           <span>日期</span>
           <span>状态</span>
           <span>期限</span>
+          <span>打卡</span>
           <span>紧急 / 重要</span>
           <span>类型标签</span>
           <span>操作</span>
@@ -1023,6 +1074,7 @@ function TodoTable({
             onAddTodo={onAddTodo}
             onDeleteTodo={onDeleteTodo}
             onUpdateTodo={onUpdateTodo}
+            onToggleTodoCheckIn={onToggleTodoCheckIn}
             onCompletionBlocked={onCompletionBlocked}
             expandedTodoIds={expandedTodoIds}
             onToggleTodoChildren={toggleTodoChildren}
@@ -1043,6 +1095,7 @@ function TodoRows({
   onToggleTodayPlanSelection,
   onAddTodo,
   onUpdateTodo,
+  onToggleTodoCheckIn,
   onDeleteTodo,
   onCompletionBlocked,
   expandedTodoIds,
@@ -1057,6 +1110,7 @@ function TodoRows({
   onToggleTodayPlanSelection: (todoId: string, checked: boolean) => void;
   onAddTodo: (todo: Todo) => void;
   onUpdateTodo: (todo: Todo, patch: Partial<Todo>) => void;
+  onToggleTodoCheckIn: (todoId: string) => void;
   onDeleteTodo: (todoId: string) => void;
   onCompletionBlocked: (todo: Todo) => void;
   expandedTodoIds: Set<string>;
@@ -1079,6 +1133,7 @@ function TodoRows({
         onAddTodo={onAddTodo}
         onDeleteTodo={onDeleteTodo}
         onUpdateTodo={onUpdateTodo}
+        onToggleTodoCheckIn={onToggleTodoCheckIn}
         onCompletionBlocked={onCompletionBlocked}
         hasChildren={hasChildren}
         isExpanded={isExpanded}
@@ -1097,6 +1152,7 @@ function TodoRows({
           onAddTodo={onAddTodo}
           onDeleteTodo={onDeleteTodo}
           onUpdateTodo={onUpdateTodo}
+          onToggleTodoCheckIn={onToggleTodoCheckIn}
           onCompletionBlocked={onCompletionBlocked}
           expandedTodoIds={expandedTodoIds}
           onToggleTodoChildren={onToggleTodoChildren}
@@ -1115,6 +1171,7 @@ function TodoRow({
   onToggleTodayPlanSelection,
   onAddTodo,
   onUpdateTodo,
+  onToggleTodoCheckIn,
   onDeleteTodo,
   onCompletionBlocked,
   hasChildren,
@@ -1129,6 +1186,7 @@ function TodoRow({
   onToggleTodayPlanSelection: (todoId: string, checked: boolean) => void;
   onAddTodo: (todo: Todo) => void;
   onUpdateTodo: (todo: Todo, patch: Partial<Todo>) => void;
+  onToggleTodoCheckIn: (todoId: string) => void;
   onDeleteTodo: (todoId: string) => void;
   onCompletionBlocked: (todo: Todo) => void;
   hasChildren: boolean;
@@ -1220,6 +1278,7 @@ function TodoRow({
         <option value="short">短期</option>
         <option value="long">长期</option>
       </select>
+      <TodoCheckInCell todo={todo} onToggle={() => onToggleTodoCheckIn(todo.id)} />
       <div className="mini-checks">
         {(Object.keys(urgencyLabels) as UrgencyTag[]).map((tag) => (
           <label key={tag}>
@@ -1255,6 +1314,27 @@ function TodoRow({
           <Trash2 size={16} />
         </button>
       </div>
+    </div>
+  );
+}
+
+function TodoCheckInCell({ todo, onToggle }: { todo: Todo; onToggle: () => void }) {
+  if (todo.term !== 'long') return <span className="checkin-cell checkin-empty">-</span>;
+
+  const checkedInToday = todo.checkInDates.includes(toDateKey());
+  return (
+    <div className="checkin-cell">
+      <span>累计 {todo.checkInDates.length} 次</span>
+      <button
+        className={checkedInToday ? 'checkin-button checked' : 'checkin-button'}
+        type="button"
+        aria-label={`${checkedInToday ? '撤销' : ''}${todo.title} 今日打卡`}
+        aria-pressed={checkedInToday}
+        onClick={onToggle}
+      >
+        <CalendarCheck2 size={16} />
+        {checkedInToday ? '今日已打卡' : '今日打卡'}
+      </button>
     </div>
   );
 }
@@ -1374,6 +1454,14 @@ function TypeTagBadges({ todo, typeTags }: { todo: Todo; typeTags: TypeTagView[]
   );
 }
 
+function CompletedCheckInCount({ todo }: { todo: Todo }) {
+  return (
+    <span className={todo.term === 'long' ? 'completed-checkin-count' : 'completed-checkin-count empty'}>
+      {todo.term === 'long' ? `打卡 ${todo.checkInDates.length} 次` : ''}
+    </span>
+  );
+}
+
 function CompletedTodosPage({
   data,
   onUpdateTodo,
@@ -1464,8 +1552,12 @@ function CompletedTodosPage({
                 )}
                 <CheckCircle2 size={18} />
                 <strong>{group.parent.title}</strong>
-                <CompletedStatusSelect todo={group.parent} typeTags={data.typeTags} onUpdateTodo={onUpdateTodo} onCompletionBlocked={setCompletionTagDialogTodo} />
+                <div className="done-status-stack">
+                  <CompletedStatusSelect todo={group.parent} typeTags={data.typeTags} onUpdateTodo={onUpdateTodo} onCompletionBlocked={setCompletionTagDialogTodo} />
+                  {isCompletedLate(group.parent) && <span className="done-status overdue-completed">逾期完成</span>}
+                </div>
                 <TypeTagBadges todo={group.parent} typeTags={data.typeTags} />
+                <CompletedCheckInCount todo={group.parent} />
                 <span>{group.parent.pomodoroCount} 个番茄</span>
                 <span>{group.parentCompletedOnDate ? completedTime(group.parent) : '-'}</span>
               </div>
@@ -1474,8 +1566,12 @@ function CompletedTodosPage({
                   <span className="tree-toggle-spacer" aria-hidden="true" />
                   <span className="branch-mark">└</span>
                   <strong>{child.title}</strong>
-                  <CompletedStatusSelect todo={child} typeTags={data.typeTags} onUpdateTodo={onUpdateTodo} onCompletionBlocked={setCompletionTagDialogTodo} />
+                  <div className="done-status-stack">
+                    <CompletedStatusSelect todo={child} typeTags={data.typeTags} onUpdateTodo={onUpdateTodo} onCompletionBlocked={setCompletionTagDialogTodo} />
+                    {isCompletedLate(child) && <span className="done-status overdue-completed">逾期完成</span>}
+                  </div>
                   <TypeTagBadges todo={child} typeTags={data.typeTags} />
+                  <CompletedCheckInCount todo={child} />
                   <span>{child.pomodoroCount} 个番茄</span>
                   <span>{completedTime(child)}</span>
                 </div>
@@ -1705,27 +1801,107 @@ function WeeklyMetric({ label, value }: { label: string; value: string }) {
 
 function BacklogPage({
   items,
+  tags,
   onAddItem,
   onUpdateItem,
-  onDeleteItem
+  onDeleteItem,
+  onAddTag,
+  onDeleteTag,
+  onNavigate
 }: {
   items: BacklogItem[];
+  tags: InspirationTag[];
   onAddItem: (title: string) => void;
   onUpdateItem: (item: BacklogItem) => void;
   onDeleteItem: (itemId: string) => void;
+  onAddTag: (name: string, color: string) => void;
+  onDeleteTag: (tagId: string) => void;
+  onNavigate: (page: Page) => void;
 }) {
   const [title, setTitle] = useState('');
+  const [tagName, setTagName] = useState('');
+  const [tagColor, setTagColor] = useState('#315f4d');
+  const [fountainAnimation, setFountainAnimation] = useState<'envelope' | 'glow' | null>(null);
+  const [pendingDeleteTagId, setPendingDeleteTagId] = useState<string | null>(null);
+  const [blockedDeleteTagId, setBlockedDeleteTagId] = useState<string | null>(null);
+  const [completionBlockedItem, setCompletionBlockedItem] = useState<BacklogItem | null>(null);
+  const [tagFocusItemId, setTagFocusItemId] = useState<string | null>(null);
+  const animationTimer = useRef<number | null>(null);
+  const activeItems = items.filter((item) => item.status === 'active');
+  const groupedItems = [
+    { id: null, name: '待分类', color: '#74634f', items: activeItems.filter((item) => !item.tagId) },
+    ...tags.map((tag) => ({ ...tag, items: activeItems.filter((item) => item.tagId === tag.id) }))
+  ].filter((group) => group.items.length > 0);
+
+  useEffect(() => {
+    return () => {
+      if (animationTimer.current) window.clearTimeout(animationTimer.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!tagFocusItemId) return;
+    document.getElementById(`inspiration-tag-${tagFocusItemId}`)?.focus();
+    setTagFocusItemId(null);
+  }, [tagFocusItemId]);
+
+  function prefersReducedMotion() {
+    return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+  }
+
+  function playFountainAnimation(animation: 'envelope' | 'glow') {
+    if (prefersReducedMotion()) return;
+    if (animationTimer.current) window.clearTimeout(animationTimer.current);
+    setFountainAnimation(null);
+    window.requestAnimationFrame(() => setFountainAnimation(animation));
+    animationTimer.current = window.setTimeout(() => setFountainAnimation(null), 1250);
+  }
 
   function addItem() {
     const trimmed = title.trim();
     if (!trimmed) return;
     onAddItem(trimmed);
     setTitle('');
+    playFountainAnimation('envelope');
+  }
+
+  function addTag() {
+    const trimmed = tagName.trim();
+    if (!trimmed || tags.some((tag) => tag.name === trimmed)) return;
+    onAddTag(trimmed, tagColor);
+    setTagName('');
+  }
+
+  function deleteTag(tagId: string) {
+    if (items.some((item) => item.tagId === tagId)) {
+      setBlockedDeleteTagId(tagId);
+      setPendingDeleteTagId(null);
+      return;
+    }
+    onDeleteTag(tagId);
+    setPendingDeleteTagId(null);
+  }
+
+  function completeItem(item: BacklogItem) {
+    const hasValidTag = Boolean(item.tagId && tags.some((tag) => tag.id === item.tagId));
+    if (!hasValidTag) {
+      setCompletionBlockedItem(item);
+      return;
+    }
+    onUpdateItem({ ...item, status: 'completed', updatedAt: currentIso() });
+    playFountainAnimation('glow');
   }
 
   return (
     <section className="page-panel table-page">
-      <PageTitle eyebrow="待思" title="灵感池" />
+      <div className="backlog-page-heading">
+        <PageTitle eyebrow="待思" title="灵感池" />
+        <button className="ghost-button" type="button" onClick={() => onNavigate('completedBacklog')}>
+          <Archive size={17} />
+          已完成灵感
+        </button>
+      </div>
+      <InspirationFountain animation={fountainAnimation} />
       <div className="toolbar">
         <input
           aria-label="新增灵感"
@@ -1741,33 +1917,197 @@ function BacklogPage({
           新增
         </button>
       </div>
-      <div className="backlog-table">
-        <div className="backlog-row table-head">
-          <span>已构思</span>
-          <span>事项 / 问题</span>
-          <span>操作</span>
-        </div>
-        {items.map((item) => (
-          <div className="backlog-row" key={item.id}>
-            <input
-              aria-label={`${item.title} 已构思完成`}
-              type="checkbox"
-              checked={item.isPlanned}
-              onChange={(event) => onUpdateItem({ ...item, isPlanned: event.target.checked, updatedAt: currentIso() })}
-            />
-            <input
-              aria-label={`${item.title} 内容`}
-              value={item.title}
-              onChange={(event) => onUpdateItem({ ...item, title: event.target.value, updatedAt: currentIso() })}
-            />
-            <button className="ghost-button icon-button" type="button" onClick={() => onDeleteItem(item.id)} aria-label={`删除 ${item.title}`}>
-              <Trash2 size={16} />
-            </button>
-          </div>
-        ))}
-        {items.length === 0 && <p className="empty-state table-empty">暂无灵感记录。</p>}
+      <div className="toolbar tag-toolbar inspiration-tag-toolbar">
+        <input aria-label="新灵感标签名" placeholder="新增灵感标签" value={tagName} onChange={(event) => setTagName(event.target.value)} />
+        <input aria-label="灵感标签颜色" type="color" value={tagColor} onChange={(event) => setTagColor(event.target.value)} />
+        <button type="button" onClick={addTag}>
+          <Tag size={17} />
+          加标签
+        </button>
       </div>
+      <div className="type-tag-library inspiration-tag-library" aria-label="灵感标签库">
+        <span>灵感标签</span>
+        {tags.length === 0 && <em>暂无标签，可先记录后分类。</em>}
+        {tags.map((tag) => {
+          const usageCount = items.filter((item) => item.tagId === tag.id).length;
+          const isConfirming = pendingDeleteTagId === tag.id;
+          const isBlocked = blockedDeleteTagId === tag.id;
+          return (
+            <div key={tag.id} className={isConfirming ? 'type-tag-chip confirming' : 'type-tag-chip'} style={{ borderColor: tag.color }}>
+              <span className="type-tag-chip-name"><i style={{ backgroundColor: tag.color }} />{tag.name}</span>
+              <small>{usageCount} 项</small>
+              {isBlocked ? (
+                <>
+                  <small className="type-tag-delete-blocked">仍有灵感使用此标签，无法删除。</small>
+                  <button className="ghost-button" type="button" onClick={() => setBlockedDeleteTagId(null)}>知道了</button>
+                </>
+              ) : isConfirming ? (
+                <>
+                  <button className="danger-button" type="button" onClick={() => deleteTag(tag.id)}>确认删除</button>
+                  <button className="ghost-button" type="button" onClick={() => setPendingDeleteTagId(null)}>取消</button>
+                </>
+              ) : (
+                <button className="ghost-button icon-button" type="button" onClick={() => setPendingDeleteTagId(tag.id)} aria-label={`准备删除灵感标签 ${tag.name}`} title={`删除 ${tag.name}`}>
+                  <Trash2 size={14} />
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="inspiration-groups">
+        {groupedItems.map((group) => (
+          <section className="inspiration-group" key={group.id ?? 'unclassified'}>
+            <div className="inspiration-group-heading">
+              <span style={{ backgroundColor: group.color }} />
+              <h2>{group.name}</h2>
+              <small>{group.items.length} 项</small>
+            </div>
+            <div className="backlog-table">
+              {group.items.map((item) => (
+                <div className="backlog-row inspiration-row" key={item.id}>
+                  <button className="inspiration-complete-button" type="button" onClick={() => completeItem(item)} aria-label={`完成灵感 ${item.title}`} title="标记为已完成">
+                    <CheckCircle2 size={18} />
+                  </button>
+                  <input aria-label={`${item.title} 内容`} value={item.title} onChange={(event) => onUpdateItem({ ...item, title: event.target.value, updatedAt: currentIso() })} />
+                  <select id={`inspiration-tag-${item.id}`} aria-label={`${item.title} 灵感标签`} value={item.tagId ?? ''} onChange={(event) => onUpdateItem({ ...item, tagId: event.target.value || null, updatedAt: currentIso() })}>
+                    <option value="">待分类</option>
+                    {tags.map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}
+                  </select>
+                  <button className="ghost-button icon-button" type="button" onClick={() => onDeleteItem(item.id)} aria-label={`删除 ${item.title}`}><Trash2 size={16} /></button>
+                </div>
+              ))}
+            </div>
+          </section>
+        ))}
+        {activeItems.length === 0 && <p className="empty-state table-empty">灵感池暂时为空，写下一条新的想法吧。</p>}
+      </div>
+      {completionBlockedItem && (
+        <div className="completion-dialog-backdrop" role="presentation">
+          <section className="completion-dialog" role="alertdialog" aria-modal="true" aria-labelledby="inspiration-completion-dialog-title">
+            <h2 id="inspiration-completion-dialog-title">完成前请选择灵感标签</h2>
+            <p>“{completionBlockedItem.title}”尚未分类，无法归档为已完成灵感。</p>
+            <div className="completion-dialog-actions">
+              <button className="ghost-button" type="button" onClick={() => setCompletionBlockedItem(null)}>取消</button>
+              <button type="button" onClick={() => { setTagFocusItemId(completionBlockedItem.id); setCompletionBlockedItem(null); }}>前往选择标签</button>
+            </div>
+          </section>
+        </div>
+      )}
     </section>
+  );
+}
+
+function CompletedInspirationPage({
+  items,
+  tags,
+  onUpdateItem,
+  onNavigate
+}: {
+  items: BacklogItem[];
+  tags: InspirationTag[];
+  onUpdateItem: (item: BacklogItem) => void;
+  onNavigate: (page: Page) => void;
+}) {
+  const [detailItemId, setDetailItemId] = useState<string | null>(null);
+  const completedItems = items.filter((item) => item.status === 'completed');
+  const detailItem = completedItems.find((item) => item.id === detailItemId) ?? null;
+  const groupedItems = tags
+    .map((tag) => ({ ...tag, items: completedItems.filter((item) => item.tagId === tag.id) }))
+    .filter((group) => group.items.length > 0);
+
+  return (
+    <section className="page-panel table-page completed-inspiration-page">
+      <div className="backlog-page-heading">
+        <PageTitle eyebrow="已悟" title="已完成灵感" />
+        <button className="ghost-button" type="button" onClick={() => onNavigate('backlog')}>返回灵感池</button>
+      </div>
+      {completedItems.length === 0 ? (
+        <p className="empty-state table-empty">还没有已完成灵感。</p>
+      ) : (
+        <div className="inspiration-groups">
+          {groupedItems.map((group) => (
+            <section className="inspiration-group" key={group.id}>
+              <div className="inspiration-group-heading"><span style={{ backgroundColor: group.color }} /><h2>{group.name}</h2><small>{group.items.length} 项</small></div>
+              <div className="completed-inspiration-list">
+                {group.items.map((item) => (
+                  <div className="completed-inspiration-item" key={item.id}>
+                    <CheckCircle2 size={18} aria-hidden="true" />
+                    <strong>{item.title}</strong>
+                    <button className="ghost-button" type="button" onClick={() => setDetailItemId(item.id)}><Eye size={17} />查看详情</button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
+      {detailItem && (
+        <InspirationDetailDialog
+          key={detailItem.id}
+          item={detailItem}
+          onClose={() => setDetailItemId(null)}
+          onUpdateItem={onUpdateItem}
+          onReopen={() => {
+            onUpdateItem({ ...detailItem, status: 'active', updatedAt: currentIso() });
+            setDetailItemId(null);
+          }}
+        />
+      )}
+    </section>
+  );
+}
+
+function InspirationDetailDialog({ item, onClose, onUpdateItem, onReopen }: { item: BacklogItem; onClose: () => void; onUpdateItem: (item: BacklogItem) => void; onReopen: () => void }) {
+  const [view, setView] = useState<'edit' | 'preview'>('edit');
+  return (
+    <div className="completion-dialog-backdrop" role="presentation">
+      <section className="inspiration-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="inspiration-detail-title">
+        <header>
+          <div><p className="eyebrow">完成灵感</p><h2 id="inspiration-detail-title">查看详情</h2></div>
+          <button className="ghost-button icon-button" type="button" onClick={onClose} aria-label="关闭详情">×</button>
+        </header>
+        <div className="inspiration-detail-grid">
+          <aside><span>灵感标题</span><strong>{item.title}</strong></aside>
+          <section>
+            <div className="detail-editor-heading"><span>完成细节</span><div><button className={view === 'edit' ? 'detail-tab active' : 'detail-tab'} type="button" onClick={() => setView('edit')}>编辑</button><button className={view === 'preview' ? 'detail-tab active' : 'detail-tab'} type="button" onClick={() => setView('preview')}>预览</button></div></div>
+            {view === 'edit' ? (
+              <textarea aria-label={`${item.title} 完成细节`} placeholder="支持 Markdown：标题、列表、引用、代码块和链接" value={item.completionDetails} onChange={(event) => onUpdateItem({ ...item, completionDetails: event.target.value, updatedAt: currentIso() })} />
+            ) : (
+              <div className="markdown-preview">{item.completionDetails.trim() ? <ReactMarkdown>{item.completionDetails}</ReactMarkdown> : <p>暂无完成细节。</p>}</div>
+            )}
+          </section>
+        </div>
+        <footer><button className="ghost-button" type="button" onClick={onReopen}>重新打开</button><button type="button" onClick={onClose}>完成</button></footer>
+      </section>
+    </div>
+  );
+}
+
+function InspirationFountain({ animation }: { animation: 'envelope' | 'glow' | null }) {
+  return (
+    <div
+      className={`inspiration-fountain${animation ? ` animation-${animation}` : ''}`}
+      data-testid="inspiration-fountain"
+      aria-hidden="true"
+    >
+      <img className="fountain-photo" src={inspirationFountainImage} alt="" />
+      <div className="fountain-photo-vignette" />
+      <div className="pool-ambient-shimmer">
+        <span />
+        <span />
+      </div>
+      <span className="water-ripple ripple-one" />
+      <span className="water-ripple ripple-two" />
+      <div className="fountain-completion-glow" />
+      <div className="fountain-sparkles">
+        <i /><i /><i /><i />
+      </div>
+      <div className="inspiration-envelope">
+        <Send size={20} fill="currentColor" strokeWidth={1.8} />
+        <Sparkles className="envelope-sparkle" size={18} />
+      </div>
+    </div>
   );
 }
 
