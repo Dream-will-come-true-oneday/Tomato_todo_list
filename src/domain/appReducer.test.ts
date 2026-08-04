@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createDefaultAppData } from './defaultData';
+import { createBacklogItem, createDefaultAppData, createInspirationTag } from './defaultData';
 import { appReducer } from './appReducer';
 
 describe('appReducer', () => {
@@ -95,6 +95,46 @@ describe('appReducer', () => {
     });
   });
 
+  it('toggles one daily check-in for an incomplete long-term todo', () => {
+    const data = createDefaultAppData();
+    const todo = {
+      ...data.todos[0],
+      term: 'long' as const,
+      status: 'active' as const,
+      typeTagIds: [data.typeTags[0].id]
+    };
+    const input = { ...data, todos: [todo] };
+
+    const firstDay = appReducer(input, { type: 'toggleTodoCheckIn', todoId: todo.id, date: '2026-07-27' });
+    const secondDay = appReducer(firstDay, { type: 'toggleTodoCheckIn', todoId: todo.id, date: '2026-07-28' });
+    const undone = appReducer(secondDay, { type: 'toggleTodoCheckIn', todoId: todo.id, date: '2026-07-27' });
+
+    expect(firstDay.todos[0].checkInDates).toEqual(['2026-07-27']);
+    expect(secondDay.todos[0].checkInDates).toEqual(['2026-07-27', '2026-07-28']);
+    expect(undone.todos[0].checkInDates).toEqual(['2026-07-28']);
+  });
+
+  it('refuses to check in a long-term todo without a valid type tag', () => {
+    const data = createDefaultAppData();
+    const todo = { ...data.todos[0], term: 'long' as const, status: 'active' as const, typeTagIds: [] as string[] };
+    const input = { ...data, todos: [todo] };
+
+    expect(appReducer(input, { type: 'toggleTodoCheckIn', todoId: todo.id, date: '2026-07-27' })).toBe(input);
+  });
+
+  it('rejects check-ins for short, completed, archived and invalid todos', () => {
+    const data = createDefaultAppData();
+    const shortTodo = data.todos[0];
+    const completedTodo = { ...shortTodo, id: 'long-completed', term: 'long' as const, status: 'completed' as const };
+    const archivedTodo = { ...shortTodo, id: 'long-archived', term: 'long' as const, status: 'archived' as const };
+    const input = { ...data, todos: [shortTodo, completedTodo, archivedTodo] };
+
+    expect(appReducer(input, { type: 'toggleTodoCheckIn', todoId: shortTodo.id, date: '2026-07-27' })).toBe(input);
+    expect(appReducer(input, { type: 'toggleTodoCheckIn', todoId: completedTodo.id, date: '2026-07-27' })).toBe(input);
+    expect(appReducer(input, { type: 'toggleTodoCheckIn', todoId: archivedTodo.id, date: '2026-07-27' })).toBe(input);
+    expect(appReducer(input, { type: 'toggleTodoCheckIn', todoId: completedTodo.id, date: 'bad-date' })).toBe(input);
+  });
+
   it('adds and replaces weekly reflections by their week start date', () => {
     const data = createDefaultAppData();
     const first = appReducer(data, {
@@ -130,10 +170,53 @@ describe('appReducer', () => {
     expect(next).toBe(input);
   });
 
+  it('refuses to delete the last valid type tag from a checked-in todo', () => {
+    const data = createDefaultAppData();
+    const tagId = data.typeTags[0].id;
+    const todo = { ...data.todos[0], term: 'long' as const, typeTagIds: [tagId], checkInDates: ['2026-07-26'] };
+    const input = { ...data, todos: [todo] };
+
+    expect(appReducer(input, { type: 'deleteTypeTag', tagId })).toBe(input);
+  });
+
   it('refuses to add a completed todo without a valid type tag', () => {
     const data = createDefaultAppData();
     const todo = { ...data.todos[0], id: 'completed-without-type', status: 'completed' as const };
 
     expect(appReducer(data, { type: 'addTodo', todo })).toBe(data);
   });
+
+  it('requires an inspiration tag before completion and protects referenced inspiration tags', () => {
+    const data = createDefaultAppData();
+    const tag = createInspirationTag('研究');
+    const untagged = createBacklogItem('未分类灵感');
+    const input = { ...data, inspirationTags: [tag], backlogItems: [untagged] };
+
+    expect(appReducer(input, { type: 'updateBacklogItem', item: { ...untagged, status: 'completed' } })).toBe(input);
+
+    const tagged = { ...untagged, tagId: tag.id };
+    const withTag = { ...input, backlogItems: [tagged] };
+    const completed = appReducer(withTag, { type: 'updateBacklogItem', item: { ...tagged, status: 'completed' } });
+    expect(completed.backlogItems[0].status).toBe('completed');
+    expect(appReducer(completed, { type: 'deleteInspirationTag', tagId: tag.id })).toBe(completed);
+  });
 });
+
+  it('updates the daily schedule settings as one persisted configuration', () => {
+    const data = createDefaultAppData();
+    const schedule = { ...data.dailySchedule, enabled: false, soundEnabled: false };
+
+    const next = appReducer(data, { type: 'updateDailySchedule', schedule });
+
+    expect(next.dailySchedule).toBe(schedule);
+    expect(next.todos).toBe(data.todos);
+  });
+
+  it('replaces the complete data set after a validated import', () => {
+    const data = createDefaultAppData();
+    const imported = { ...createDefaultAppData(), todos: [], backlogItems: [] };
+
+    const next = appReducer(data, { type: 'replaceData', data: imported });
+
+    expect(next).toBe(imported);
+  });

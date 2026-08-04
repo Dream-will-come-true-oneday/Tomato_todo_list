@@ -11,23 +11,33 @@ export type TypeTagShare = {
 
 export type WeekDaySummary = {
   date: string;
-  completedCount: number;
+  achievementCount: number;
+};
+
+export type TodoAchievementKind = 'completed' | 'checkIn';
+
+export type TodoAchievement = {
+  todoId: string;
+  date: string;
+  kind: TodoAchievementKind;
 };
 
 export type WeekSummary = {
   weekStart: string;
   weekEnd: string;
-  completedTodos: Todo[];
-  completedTodoCount: number;
+  achievements: TodoAchievement[];
+  achievementTodos: Todo[];
+  achievementCount: number;
   completedPomodoroCount: number;
   focusMinutes: number;
-  dailyCompletion: WeekDaySummary[];
+  dailyAchievements: WeekDaySummary[];
   topTypeName: string | null;
 };
 
 export type WeeklyTodoNode = {
   todo: Todo;
   completedThisWeek: boolean;
+  checkInCountThisWeek: number;
   children: WeeklyTodoNode[];
 };
 
@@ -51,14 +61,37 @@ export function getWeekDateKeys(weekStart: Date | string) {
   });
 }
 
-export function getCompletedTypeTagShares(
+export function getTodoAchievements(todos: Todo[]): TodoAchievement[] {
+  return todos.flatMap((todo) => {
+    const completedDate = todo.status === 'completed' ? todo.completedAt?.slice(0, 10) ?? null : null;
+    const achievements: TodoAchievement[] = completedDate
+      ? [{ todoId: todo.id, date: completedDate, kind: 'completed' }]
+      : [];
+
+    for (const date of new Set(todo.checkInDates)) {
+      if (date !== completedDate) achievements.push({ todoId: todo.id, date, kind: 'checkIn' });
+    }
+
+    return achievements;
+  });
+}
+
+export function getAchievementsOn(todos: Todo[], date: string) {
+  return getTodoAchievements(todos).filter((achievement) => achievement.date === date);
+}
+
+export function getAchievementTypeTagShares(
   todos: Todo[],
-  typeTags: Array<Pick<TodoTypeTag, 'id' | 'name' | 'color'>>
+  typeTags: Array<Pick<TodoTypeTag, 'id' | 'name' | 'color'>>,
+  achievements = getTodoAchievements(todos)
 ): TypeTagShare[] {
   const knownTags = new Map(typeTags.map((tag) => [tag.id, tag]));
+  const todoById = new Map(todos.map((todo) => [todo.id, todo]));
   const counts = new Map<string, number>();
 
-  for (const todo of todos.filter((item) => item.status === 'completed')) {
+  for (const achievement of achievements) {
+    const todo = todoById.get(achievement.todoId);
+    if (!todo) continue;
     const uniqueTagIds = [...new Set(todo.typeTagIds)];
     const knownTagIds = uniqueTagIds.filter((tagId) => knownTags.has(tagId));
     for (const tagId of knownTagIds) {
@@ -74,14 +107,21 @@ export function getCompletedTypeTagShares(
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 }
 
-export function buildWeeklyTodoTree(todos: Todo[], completedTodos: Todo[]): WeeklyTodoNode[] {
+export function buildWeeklyTodoTree(todos: Todo[], achievements: TodoAchievement[]): WeeklyTodoNode[] {
   const todoById = new Map(todos.map((todo) => [todo.id, todo]));
-  const completedIds = new Set(completedTodos.map((todo) => todo.id));
-  const includedIds = new Set(completedIds);
+  const completedIds = new Set(achievements.filter((item) => item.kind === 'completed').map((item) => item.todoId));
+  const checkInCounts = new Map<string, number>();
+  for (const achievement of achievements.filter((item) => item.kind === 'checkIn')) {
+    checkInCounts.set(achievement.todoId, (checkInCounts.get(achievement.todoId) ?? 0) + 1);
+  }
+  const achievementIds = new Set(achievements.map((item) => item.todoId));
+  const includedIds = new Set(achievementIds);
 
-  for (const completedTodo of completedTodos) {
+  for (const todoId of achievementIds) {
+    const achievementTodo = todoById.get(todoId);
+    if (!achievementTodo) continue;
     const visited = new Set<string>();
-    let parentId = completedTodo.parentId;
+    let parentId = achievementTodo.parentId;
     while (parentId && !visited.has(parentId)) {
       visited.add(parentId);
       const parent = todoById.get(parentId);
@@ -94,7 +134,14 @@ export function buildWeeklyTodoTree(todos: Todo[], completedTodos: Todo[]): Week
   const nodeById = new Map<string, WeeklyTodoNode>();
   for (const todoId of includedIds) {
     const todo = todoById.get(todoId);
-    if (todo) nodeById.set(todoId, { todo, completedThisWeek: completedIds.has(todoId), children: [] });
+    if (todo) {
+      nodeById.set(todoId, {
+        todo,
+        completedThisWeek: completedIds.has(todoId),
+        checkInCountThisWeek: checkInCounts.get(todoId) ?? 0,
+        children: []
+      });
+    }
   }
 
   const roots: WeeklyTodoNode[] = [];
@@ -120,24 +167,25 @@ export function getWeekSummary(
 ): WeekSummary {
   const dateKeys = getWeekDateKeys(weekStart);
   const dateKeySet = new Set(dateKeys);
-  const completedTodos = todos.filter(
-    (todo) => todo.status === 'completed' && Boolean(todo.completedAt) && dateKeySet.has(todo.completedAt!.slice(0, 10))
-  );
+  const achievements = getTodoAchievements(todos).filter((achievement) => dateKeySet.has(achievement.date));
+  const achievementTodoIds = new Set(achievements.map((achievement) => achievement.todoId));
+  const achievementTodos = todos.filter((todo) => achievementTodoIds.has(todo.id));
   const completedPomodoros = pomodoroRecords.filter(
     (record) => record.completionType === 'completed' && dateKeySet.has(record.endedAt.slice(0, 10))
   );
-  const shares = getCompletedTypeTagShares(completedTodos, typeTags);
+  const shares = getAchievementTypeTagShares(todos, typeTags, achievements);
 
   return {
     weekStart: dateKeys[0],
     weekEnd: dateKeys[6],
-    completedTodos,
-    completedTodoCount: completedTodos.length,
+    achievements,
+    achievementTodos,
+    achievementCount: achievements.length,
     completedPomodoroCount: completedPomodoros.length,
     focusMinutes: Math.round(completedPomodoros.reduce((sum, record) => sum + record.actualElapsedSeconds, 0) / 60),
-    dailyCompletion: dateKeys.map((date) => ({
+    dailyAchievements: dateKeys.map((date) => ({
       date,
-      completedCount: completedTodos.filter((todo) => todo.completedAt?.slice(0, 10) === date).length
+      achievementCount: achievements.filter((achievement) => achievement.date === date).length
     })),
     topTypeName: shares[0]?.name ?? null
   };

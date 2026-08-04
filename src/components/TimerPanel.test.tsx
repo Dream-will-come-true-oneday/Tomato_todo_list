@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, act } from '@testing-library/react';
+import { createRef } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import TimerPanel from './TimerPanel';
+import TimerPanel, { type TimerPanelHandle, type TimerSnapshot } from './TimerPanel';
 import type { TimerPreset } from '../domain/types';
 
 const preset: TimerPreset = {
@@ -75,5 +76,26 @@ describe('TimerPanel', () => {
     expect(screen.queryByRole('status')).toBeNull();
     expect(screen.getByText('短休')).toBeTruthy();
     expect(screen.getByRole('button', { name: /暂停/ })).toBeTruthy();
+  });
+
+  it('captures a paused session and restores it after the panel remounts', () => {
+    const ref = createRef<TimerPanelHandle>();
+    const first = render(<TimerPanel ref={ref} preset={preset} selectedTodo={null} onSessionComplete={vi.fn()} />);
+    fireEvent.click(screen.getAllByRole('button')[0]);
+
+    act(() => {
+      vi.setSystemTime(new Date('2026-07-21T00:00:12.000Z'));
+      vi.advanceTimersByTime(250);
+    });
+
+    let snapshot: TimerSnapshot | undefined;
+    act(() => {
+      snapshot = ref.current?.pauseAndCapture();
+    });
+    expect(snapshot?.remainingSeconds).toBe(48);
+    first.unmount();
+
+    render(<TimerPanel preset={preset} selectedTodo={null} snapshot={snapshot} onSessionComplete={vi.fn()} />);
+    expect(screen.getByText('00:48')).toBeTruthy();
   });
 });
