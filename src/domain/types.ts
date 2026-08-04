@@ -88,8 +88,25 @@ export type DailyPomodoroPlan = {
   excludedTodoIds: string[];
 };
 
+export type DailyScheduleItem = {
+  id: string;
+  startTime: string;
+  endTime: string | null;
+  title: string;
+  rule: string;
+  enabled: boolean;
+};
+
+export type DailyScheduleSettings = {
+  enabled: boolean;
+  soundEnabled: boolean;
+  desktopNotificationEnabled: boolean;
+  autoLaunch: boolean;
+  items: DailyScheduleItem[];
+};
+
 export type AppData = {
-  version: 6;
+  version: 8;
   presets: TimerPreset[];
   todos: Todo[];
   typeTags: TodoTypeTag[];
@@ -99,5 +116,6 @@ export type AppData = {
   inspirationTags: InspirationTag[];
   pomodoroRecords: PomodoroRecord[];
   todayPlans: Record<string, DailyPomodoroPlan>;
+  dailySchedule: DailyScheduleSettings;
   activePresetId: string;
 };

@@ -173,8 +173,8 @@ describe('App workflows', () => {
 
   it('checks in long-term parent and child todos independently and allows undoing today', () => {
     const data = createDefaultAppData();
-    const parent = createDefaultTodo('长期父任务', { term: 'long', status: 'active' });
-    const child = createDefaultTodo('长期子任务', { parentId: parent.id, term: 'long', status: 'active' });
+    const parent = createDefaultTodo('长期父任务', { term: 'long', status: 'active', typeTagIds: [data.typeTags[0].id] });
+    const child = createDefaultTodo('长期子任务', { parentId: parent.id, term: 'long', status: 'active', typeTagIds: [data.typeTags[0].id] });
     data.todos = [parent, child];
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 
@@ -193,6 +193,39 @@ describe('App workflows', () => {
 
     fireEvent.click(within(parentRow as HTMLElement).getByRole('button', { name: '撤销长期父任务 今日打卡' }));
     expect(within(parentRow as HTMLElement).getByText('累计 0 次')).toBeTruthy();
+  });
+
+  it('shows a checked-in child as a daily achievement without archiving it and removes it after undo', () => {
+    const data = createDefaultAppData();
+    const parent = createDefaultTodo('打卡父任务', { term: 'long', status: 'active', typeTagIds: [data.typeTags[0].id] });
+    const child = createDefaultTodo('打卡子任务', { parentId: parent.id, term: 'long', status: 'active', typeTagIds: [data.typeTags[0].id] });
+    data.todos = [parent, child];
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: '待办事项' }));
+    fireEvent.click(screen.getByRole('button', { name: '未完成待办' }));
+    fireEvent.click(screen.getByRole('button', { name: '打卡子任务 今日打卡' }));
+
+    expect(screen.getByDisplayValue('打卡子任务')).toBeTruthy();
+    expect((screen.getByLabelText('打卡子任务 状态') as HTMLSelectElement).value).toBe('active');
+
+    fireEvent.click(screen.getByRole('button', { name: '待办事项' }));
+    fireEvent.click(screen.getByRole('button', { name: '已完成待办' }));
+    const childAchievementRow = screen.getByText('打卡子任务').closest('.done-child');
+    expect(childAchievementRow).not.toBeNull();
+    expect(within(childAchievementRow as HTMLElement).getByText('已打卡')).toBeTruthy();
+    expect(within(childAchievementRow as HTMLElement).getByText('进行中')).toBeTruthy();
+    expect(within(childAchievementRow as HTMLElement).getByText('打卡 1 次')).toBeTruthy();
+    expect(within(childAchievementRow as HTMLElement).getByText('当日打卡')).toBeTruthy();
+    expect(within(childAchievementRow as HTMLElement).queryByLabelText('打卡子任务 已完成页状态')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '待办事项' }));
+    fireEvent.click(screen.getByRole('button', { name: '未完成待办' }));
+    fireEvent.click(screen.getByRole('button', { name: '撤销打卡子任务 今日打卡' }));
+    fireEvent.click(screen.getByRole('button', { name: '待办事项' }));
+    fireEvent.click(screen.getByRole('button', { name: '已完成待办' }));
+    expect(screen.queryByText('打卡子任务')).toBeNull();
   });
 
   it('shows saved check-in counts for completed long-term todos only', () => {
@@ -240,9 +273,10 @@ describe('App workflows', () => {
     expect(doneTable).not.toBeNull();
     expect(within(doneTable as HTMLElement).getByText('Parent task')).toBeTruthy();
     expect(within(doneTable as HTMLElement).getByText('Child task')).toBeTruthy();
-    expect((within(doneTable as HTMLElement).getByLabelText('Parent task 已完成页状态') as HTMLSelectElement).value).toBe(
-      'active'
-    );
+    const parentRow = screen.getByText('Parent task').closest('.done-parent');
+    expect(parentRow).not.toBeNull();
+    expect(within(parentRow as HTMLElement).getByText('进行中')).toBeTruthy();
+    expect(within(parentRow as HTMLElement).queryByLabelText('Parent task 已完成页状态')).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: '收起 Parent task 的子任务' }));
     expect(within(doneTable as HTMLElement).queryByText('Child task')).toBeNull();
@@ -307,10 +341,10 @@ describe('App workflows', () => {
 
     const { unmount } = render(<App />);
     fireEvent.click(screen.getByRole('button', { name: '待办事项' }));
-    expect(screen.getByText('本周完成')).toBeTruthy();
+    expect(screen.getByText('本周成果')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: '已完成待办' }));
-    expect(screen.getByRole('heading', { name: '完成类型占比' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '成果类型占比' })).toBeTruthy();
     expect(screen.getAllByText('IT').length).toBeGreaterThan(0);
     expect(screen.getAllByText(data.typeTags[0].name).length).toBeGreaterThan(0);
 
@@ -340,6 +374,43 @@ describe('App workflows', () => {
     expect(screen.getByText('完成前请选择类型标签')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '前往添加标签' }));
     expect(document.activeElement?.getAttribute('aria-label')).toBe(`需要标签 类型标签 ${data.typeTags[0].name}`);
+  });
+
+  it('requires a type tag before a long-term todo can be checked in', () => {
+    const data = createDefaultAppData();
+    data.todos = [createDefaultTodo('无标签长期任务', { term: 'long', status: 'active' })];
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: '待办事项' }));
+    fireEvent.click(screen.getByRole('button', { name: '未完成待办' }));
+    fireEvent.click(screen.getByRole('button', { name: '无标签长期任务 今日打卡' }));
+
+    expect(screen.getByRole('alertdialog')).toBeTruthy();
+    expect(screen.getByText('打卡前请选择类型标签')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '前往添加标签' }));
+    expect(document.activeElement?.getAttribute('aria-label')).toBe(`无标签长期任务 类型标签 ${data.typeTags[0].name}`);
+  });
+
+  it('shows a same-day completed and checked-in todo as one completed achievement', () => {
+    const today = toDateKey();
+    const data = createDefaultAppData();
+    data.todos = [
+      {
+        ...createDefaultTodo('同日成果', { term: 'long', status: 'completed', typeTagIds: [data.typeTags[0].id] }),
+        completedAt: `${today}T09:00:00.000Z`,
+        checkInDates: [today]
+      }
+    ];
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: '待办事项' }));
+    fireEvent.click(screen.getByRole('button', { name: '已完成待办' }));
+
+    expect(screen.getAllByText('同日成果')).toHaveLength(1);
+    expect(screen.queryByText('已打卡')).toBeNull();
+    expect(screen.getByLabelText('同日成果 已完成页状态')).toBeTruthy();
   });
 
   it('marks late completed todos in the selected completion date list', () => {
@@ -443,3 +514,54 @@ describe('App workflows', () => {
     expect(screen.getByDisplayValue('完成架构草图')).toBeTruthy();
   });
 });
+
+  it('manages the daily schedule and persists edits without allowing duplicate reminder times', () => {
+    const { unmount } = render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: '番茄钟' }));
+    fireEvent.click(screen.getByRole('button', { name: '每日安排' }));
+
+    expect(screen.getByRole('heading', { name: '每日时间安排' })).toBeTruthy();
+    expect(screen.getByDisplayValue('起床、洗漱，温水 + 少量坚果')).toBeTruthy();
+
+    const breakfastStart = screen.getByLabelText('早餐 开始时间') as HTMLInputElement;
+    fireEvent.change(breakfastStart, { target: { value: '07:30' } });
+    expect(screen.getByText('该开始时间已有启用的安排')).toBeTruthy();
+    expect(breakfastStart.value).toBe('08:00');
+
+    fireEvent.change(screen.getByLabelText('08:00 安排标题'), { target: { value: '早餐和咖啡' } });
+    expect(screen.getByDisplayValue('早餐和咖啡')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '删除安排 早餐和咖啡' }));
+    expect(screen.getByText('确定删除“早餐和咖啡”吗？')).toBeTruthy();
+    fireEvent.click(screen.getAllByRole('button', { name: '取消' })[0]);
+    expect(screen.getByDisplayValue('早餐和咖啡')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '恢复默认' }));
+    expect(screen.getByText('恢复默认安排会替换当前全部时间段，是否继续？')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '确认恢复' }));
+    expect(screen.getByText('已恢复默认每日安排')).toBeTruthy();
+    expect(screen.getByDisplayValue('早餐')).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText('08:00 安排标题'), { target: { value: '早餐与咖啡' } });
+    unmount();
+
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: '番茄钟' }));
+    fireEvent.click(screen.getByRole('button', { name: '每日安排' }));
+    expect(screen.getByDisplayValue('早餐与咖啡')).toBeTruthy();
+  });
+
+  it('opens the global settings dialog with complete backup actions without navigating', () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: '打开设置' }));
+
+    expect(screen.getByRole('dialog', { name: '设置' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '一键导出全部数据' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '从备份恢复' })).toBeTruthy();
+    expect(screen.getByText('未完成待办')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭设置' }));
+    expect(screen.queryByRole('dialog', { name: '设置' })).toBeNull();
+    expect(screen.getByText('知行合一')).toBeTruthy();
+  });

@@ -1,6 +1,7 @@
 import { Pause, Play, RotateCcw, SkipForward } from 'lucide-react';
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { getNextPhase, getPhaseDurationSeconds } from '../domain/pomodoro';
+import { playReminderSound, prepareReminderSound } from '../domain/reminderSound';
 import type { PomodoroCompletionType, TimerPhase, TimerPreset, Todo } from '../domain/types';
 
 export type PhaseCompletion = {
@@ -74,7 +75,6 @@ const TimerPanel = forwardRef<TimerPanelHandle, Props>(function TimerPanel({ pre
   const sessionTodoId = useRef<string | null>(snapshot?.sessionTodoId ?? null);
   const deadlineAtMs = useRef<number | null>(null);
   const isFinishingPhase = useRef(false);
-  const audioContextRef = useRef<AudioContext | null>(null);
   const presetIdRef = useRef(preset.id);
 
   const totalSeconds = useMemo(() => getPhaseDurationSeconds(phase, preset), [phase, preset]);
@@ -85,43 +85,6 @@ const TimerPanel = forwardRef<TimerPanelHandle, Props>(function TimerPanel({ pre
     return Math.max(0, Math.ceil((deadlineAtMs.current - Date.now()) / 1000));
   }
 
-  function getAudioContext() {
-    if (!preset.soundEnabled) return;
-
-    const AudioContextConstructor =
-      window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioContextConstructor) return;
-
-    audioContextRef.current = audioContextRef.current ?? new AudioContextConstructor();
-    return audioContextRef.current;
-  }
-
-  function prepareReminderSound() {
-    const audioContext = getAudioContext();
-    if (!audioContext) return;
-    void audioContext.resume();
-  }
-
-  function playReminderSound() {
-    const audioContext = getAudioContext();
-    if (!audioContext) return;
-
-    const now = audioContext.currentTime;
-
-    [0, 0.18].forEach((offset, index) => {
-      const oscillator = audioContext.createOscillator();
-      const gain = audioContext.createGain();
-      oscillator.type = 'sine';
-      oscillator.frequency.setValueAtTime(index === 0 ? 220 : 176, now + offset);
-      gain.gain.setValueAtTime(0.0001, now + offset);
-      gain.gain.exponentialRampToValueAtTime(0.16, now + offset + 0.015);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.42);
-      oscillator.connect(gain);
-      gain.connect(audioContext.destination);
-      oscillator.start(now + offset);
-      oscillator.stop(now + offset + 0.46);
-    });
-  }
 
   function showDesktopReminder(message: string) {
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
@@ -129,7 +92,7 @@ const TimerPanel = forwardRef<TimerPanelHandle, Props>(function TimerPanel({ pre
   }
 
   function sendReminder(message: string) {
-    playReminderSound();
+    playReminderSound(preset.soundEnabled);
     showDesktopReminder(message);
   }
 
@@ -143,7 +106,7 @@ const TimerPanel = forwardRef<TimerPanelHandle, Props>(function TimerPanel({ pre
       sessionPlannedSeconds.current = nextSeconds;
       sessionTodoId.current = shouldStart && nextPhase === 'focus' ? selectedTodo?.id ?? null : null;
       deadlineAtMs.current = shouldStart ? Date.now() + nextSeconds * 1000 : null;
-      if (shouldStart) prepareReminderSound();
+      if (shouldStart) prepareReminderSound(preset.soundEnabled);
       isFinishingPhase.current = false;
       setIsRunning(shouldStart);
     },
@@ -163,11 +126,6 @@ const TimerPanel = forwardRef<TimerPanelHandle, Props>(function TimerPanel({ pre
     isFinishingPhase.current = false;
   }, [preset.id]);
 
-  useEffect(() => {
-    return () => {
-      void audioContextRef.current?.close();
-    };
-  }, []);
 
   function start() {
     if (phaseCompletion) {
@@ -181,7 +139,7 @@ const TimerPanel = forwardRef<TimerPanelHandle, Props>(function TimerPanel({ pre
       sessionTodoId.current = phase === 'focus' ? selectedTodo?.id ?? null : null;
     }
     deadlineAtMs.current = Date.now() + remainingSeconds * 1000;
-    prepareReminderSound();
+    prepareReminderSound(preset.soundEnabled);
     isFinishingPhase.current = false;
     setIsRunning(true);
   }

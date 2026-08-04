@@ -1,24 +1,30 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createDefaultAppData } from './defaultData';
-import { loadAppData, saveAppData } from './storage';
+import {
+  loadAppData,
+  parseAppDataExport,
+  parseAppDataExportEnvelope,
+  saveAppData,
+  serializeAppDataExport
+} from './storage';
 
 describe('storage', () => {
-  it('loads v6 defaults when storage is empty', () => {
+  it('loads v8 defaults when storage is empty', () => {
     const storage = new Map<string, string>();
     const getItem = vi.fn((key: string) => storage.get(key) ?? null);
 
     const result = loadAppData({ getItem } as unknown as Storage);
 
-    expect(result.data.version).toBe(6);
+    expect(result.data.version).toBe(8);
     expect(result.recovered).toBe(false);
   });
 
-  it('recovers to v6 defaults when stored JSON is invalid', () => {
+  it('recovers to v8 defaults when stored JSON is invalid', () => {
     const getItem = vi.fn(() => '{bad json');
 
     const result = loadAppData({ getItem } as unknown as Storage);
 
-    expect(result.data.version).toBe(6);
+    expect(result.data.version).toBe(8);
     expect(result.recovered).toBe(true);
   });
 
@@ -53,7 +59,7 @@ describe('storage', () => {
     const result = loadAppData({ getItem } as unknown as Storage);
 
     expect(result.recovered).toBe(false);
-    expect(result.data.version).toBe(6);
+    expect(result.data.version).toBe(8);
     expect(result.data.todos[0]).toMatchObject({
       parentId: null,
       term: 'short',
@@ -110,7 +116,7 @@ describe('storage', () => {
     const base = createDefaultAppData();
     const stored = {
       ...base,
-      version: 5,
+      version: 6,
       todos: [
         {
           ...base.todos[0],
@@ -122,8 +128,10 @@ describe('storage', () => {
 
     const result = loadAppData({ getItem: vi.fn(() => JSON.stringify(stored)) } as unknown as Storage);
 
-    expect(result.data.version).toBe(6);
+    expect(result.data.version).toBe(8);
     expect(result.data.todos[0].checkInDates).toEqual(['2026-07-26']);
+    const itTag = result.data.typeTags.find((tag) => tag.name === 'IT');
+    expect(result.data.todos[0].typeTagIds).toEqual([itTag?.id]);
   });
 
   it('migrates legacy inspiration completion state and assigns the legacy tag', () => {
@@ -141,7 +149,7 @@ describe('storage', () => {
     const result = loadAppData({ getItem: vi.fn(() => JSON.stringify(stored)) } as unknown as Storage);
     const legacyTag = result.data.inspirationTags.find((tag) => tag.name === '旧灵感');
 
-    expect(result.data.version).toBe(6);
+    expect(result.data.version).toBe(8);
     expect(result.data.backlogItems.find((item) => item.id === 'idea-done')).toMatchObject({ status: 'completed', tagId: legacyTag?.id });
     expect(result.data.backlogItems.find((item) => item.id === 'idea-open')).toMatchObject({ status: 'active', tagId: null });
   });
@@ -155,3 +163,73 @@ describe('storage', () => {
     expect(setItem).toHaveBeenCalledWith('pomodoro-todo-app:v1', JSON.stringify(data));
   });
 });
+  it('migrates v7 data to v8 and keeps only one enabled item per start time', () => {
+    const base = createDefaultAppData();
+    const stored = {
+      ...base,
+      version: 7,
+      dailySchedule: {
+        ...base.dailySchedule,
+        items: [
+          base.dailySchedule.items[0],
+          { ...base.dailySchedule.items[1], id: 'duplicate-breakfast', startTime: base.dailySchedule.items[0].startTime }
+        ]
+      }
+    };
+    const result = loadAppData({ getItem: vi.fn(() => JSON.stringify(stored)) } as unknown as Storage);
+
+    expect(result.data.version).toBe(8);
+    expect(result.data.dailySchedule.items.filter((item) => item.startTime === '07:30' && item.enabled)).toHaveLength(1);
+  });
+
+  it('round trips versioned JSON exports and rejects unsupported import shapes', () => {
+    const data = createDefaultAppData();
+    const raw = serializeAppDataExport(data, new Date('2026-08-04T08:00:00.000Z'));
+    const parsed = parseAppDataExport(raw);
+    const envelope = parseAppDataExportEnvelope(raw);
+
+    expect(JSON.parse(raw)).toMatchObject({
+      format: 'pomodoro-todo-app-backup',
+      version: 8,
+      exportedAt: '2026-08-04T08:00:00.000Z'
+    });
+    expect(envelope).toEqual({ format: 'pomodoro-todo-app-backup', version: 8, exportedAt: '2026-08-04T08:00:00.000Z', data });
+    expect(parsed).toEqual(data);
+    expect(parsed).toMatchObject({ version: 8, dailySchedule: { items: expect.any(Array) } });
+    expect(parseAppDataExport(JSON.stringify(data))).toBeNull();
+    expect(
+      parseAppDataExport(
+        JSON.stringify({
+          format: 'pomodoro-todo-app-backup',
+          version: 99,
+          exportedAt: '2026-08-04T08:00:00.000Z',
+          data
+        })
+      )
+    ).toBeNull();
+    expect(
+      parseAppDataExport(
+        JSON.stringify({ format: 'pomodoro-todo-app-backup', version: 8, exportedAt: '2026-08-04T08:00:00.000Z', data: {} })
+      )
+    ).toBeNull();
+    expect(
+      parseAppDataExportEnvelope(
+        JSON.stringify({
+          format: 'pomodoro-todo-app-backup',
+          version: 8,
+          exportedAt: 'not-a-date',
+          data
+        })
+      )
+    ).toBeNull();
+    expect(
+      parseAppDataExportEnvelope(
+        JSON.stringify({
+          format: 'pomodoro-todo-app-backup',
+          version: 7,
+          exportedAt: '2026-08-04T08:00:00.000Z',
+          data
+        })
+      )
+    ).toBeNull();
+  });

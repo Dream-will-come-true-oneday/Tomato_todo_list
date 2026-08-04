@@ -1,5 +1,8 @@
 .superpowers/
 node_modules/
 dist/
+dist-electron/
+release-*/
+release/
 .recovery-*/
 .recovery-*.sqlite

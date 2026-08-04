@@ -1,7 +1,16 @@
 {
+  "name": "longchang-pomodoro-todo",
+  "productName": "番茄时钟与待办",
+  "version": "1.0.0",
+  "private": true,
+  "description": "龙场静修主题的番茄钟、待办与每日安排桌面应用",
+  "main": "dist-electron/electron/main.js",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc && vite build",
+    "desktop:compile": "tsc -p tsconfig.electron.json",
+    "desktop:dev": "npm run desktop:compile && concurrently -k \"npm run dev\" \"wait-on http://127.0.0.1:5173 && electron .\"",
+    "build:desktop": "npm run build && npm run desktop:compile && electron-builder",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -18,9 +27,48 @@
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
     "@testing-library/user-event": "^14.5.2",
+    "@types/node": "^26.1.2",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
+    "concurrently": "^10.0.4",
+    "electron": "^43.2.0",
+    "electron-builder": "^26.15.3",
     "jsdom": "^25.0.1",
-    "vitest": "^2.1.8"
+    "vitest": "^2.1.8",
+    "wait-on": "^9.1.0"
+  },
+  "build": {
+    "appId": "com.longchang.pomodoro-todo",
+    "productName": "番茄时钟与待办",
+    "asar": true,
+    "electronDist": "node_modules/electron/dist",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "src/assets/longchang-awakening-hero.png",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  },
+  "allowScripts": {
+    "electron@43.2.0": true
   }
 }
