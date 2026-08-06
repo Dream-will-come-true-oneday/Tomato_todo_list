@@ -14,6 +14,8 @@ export type PhaseCompletion = {
 export type TimerSnapshot = {
   phase: TimerPhase;
   remainingSeconds: number;
+  isRunning: boolean;
+  deadlineAtMs: number | null;
   completedFocusCount: number;
   phaseCompletion: PhaseCompletion | null;
   sessionStartedAt: string | null;
@@ -22,6 +24,7 @@ export type TimerSnapshot = {
 };
 
 export type TimerPanelHandle = {
+  capture: () => TimerSnapshot;
   pauseAndCapture: () => TimerSnapshot;
 };
 
@@ -67,13 +70,13 @@ const TimerPanel = forwardRef<TimerPanelHandle, Props>(function TimerPanel({ pre
   const [remainingSeconds, setRemainingSeconds] = useState(
     () => snapshot?.remainingSeconds ?? getPhaseDurationSeconds('focus', preset)
   );
-  const [isRunning, setIsRunning] = useState(false);
+  const [isRunning, setIsRunning] = useState(() => snapshot?.isRunning ?? false);
   const [completedFocusCount, setCompletedFocusCount] = useState(() => snapshot?.completedFocusCount ?? 0);
   const [phaseCompletion, setPhaseCompletion] = useState<PhaseCompletion | null>(() => snapshot?.phaseCompletion ?? null);
   const sessionStartedAt = useRef<Date | null>(snapshot?.sessionStartedAt ? new Date(snapshot.sessionStartedAt) : null);
   const sessionPlannedSeconds = useRef(snapshot?.sessionPlannedSeconds ?? remainingSeconds);
   const sessionTodoId = useRef<string | null>(snapshot?.sessionTodoId ?? null);
-  const deadlineAtMs = useRef<number | null>(null);
+  const deadlineAtMs = useRef<number | null>(snapshot?.deadlineAtMs ?? null);
   const isFinishingPhase = useRef(false);
   const presetIdRef = useRef(preset.id);
 
@@ -225,6 +228,20 @@ const TimerPanel = forwardRef<TimerPanelHandle, Props>(function TimerPanel({ pre
   useImperativeHandle(
     ref,
     () => ({
+      capture() {
+        const nextRemainingSeconds = getCurrentRemainingSeconds();
+        return {
+          phase,
+          remainingSeconds: nextRemainingSeconds,
+          isRunning: isRunning && deadlineAtMs.current !== null,
+          deadlineAtMs: deadlineAtMs.current,
+          completedFocusCount,
+          phaseCompletion,
+          sessionStartedAt: sessionStartedAt.current?.toISOString() ?? null,
+          sessionPlannedSeconds: sessionPlannedSeconds.current,
+          sessionTodoId: sessionTodoId.current
+        };
+      },
       pauseAndCapture() {
         const nextRemainingSeconds = getCurrentRemainingSeconds();
         deadlineAtMs.current = null;
@@ -233,6 +250,8 @@ const TimerPanel = forwardRef<TimerPanelHandle, Props>(function TimerPanel({ pre
         return {
           phase,
           remainingSeconds: nextRemainingSeconds,
+          isRunning: false,
+          deadlineAtMs: null,
           completedFocusCount,
           phaseCompletion,
           sessionStartedAt: sessionStartedAt.current?.toISOString() ?? null,
@@ -241,7 +260,7 @@ const TimerPanel = forwardRef<TimerPanelHandle, Props>(function TimerPanel({ pre
         };
       }
     }),
-    [completedFocusCount, phase, phaseCompletion, remainingSeconds]
+    [completedFocusCount, isRunning, phase, phaseCompletion, remainingSeconds]
   );
 
   useEffect(() => {

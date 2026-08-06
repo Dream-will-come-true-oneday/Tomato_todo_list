@@ -1,7 +1,7 @@
 {
   "name": "longchang-pomodoro-todo",
   "productName": "番茄时钟与待办",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "龙场静修主题的番茄钟、待办与每日安排桌面应用",
   "main": "dist-electron/electron/main.js",
