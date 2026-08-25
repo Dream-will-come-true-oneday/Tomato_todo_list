@@ -98,4 +98,34 @@ describe('TimerPanel', () => {
     render(<TimerPanel preset={preset} selectedTodo={null} snapshot={snapshot} onSessionComplete={vi.fn()} />);
     expect(screen.getByText('00:48')).toBeTruthy();
   });
+
+  it('keeps a running session active when the panel remounts after navigation', () => {
+    const ref = createRef<TimerPanelHandle>();
+    const first = render(<TimerPanel ref={ref} preset={preset} selectedTodo={null} onSessionComplete={vi.fn()} />);
+    fireEvent.click(screen.getAllByRole('button')[0]);
+
+    act(() => {
+      vi.setSystemTime(new Date('2026-07-21T00:00:12.000Z'));
+      vi.advanceTimersByTime(250);
+    });
+
+    let snapshot: TimerSnapshot | undefined;
+    act(() => {
+      snapshot = ref.current?.capture();
+    });
+    expect(snapshot).toMatchObject({ isRunning: true, remainingSeconds: 48 });
+    first.unmount();
+
+    act(() => {
+      vi.setSystemTime(new Date('2026-07-21T00:00:20.000Z'));
+    });
+    render(<TimerPanel preset={preset} selectedTodo={null} snapshot={snapshot} onSessionComplete={vi.fn()} />);
+
+    act(() => {
+      vi.advanceTimersByTime(250);
+    });
+
+    expect(screen.getByText('00:40')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /暂停/ })).toBeTruthy();
+  });
 });

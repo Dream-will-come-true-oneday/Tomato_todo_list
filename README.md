@@ -1,6 +1,6 @@
 # 番茄时钟与待办
 
-当前软件版本：1.0.0
+当前软件版本：1.0.1
 
 本地运行的个人专注与任务管理工具。应用以“龙场静修”为视觉主题，将番茄钟、每日时间安排、今日待办、长期任务打卡、灵感归档、完成统计、每日反思和周总结整合到一个桌面工作台中。
 
@@ -75,8 +75,8 @@
 
 普通使用不需要安装 Node.js，也不需要运行命令行。请使用发布的 Windows 安装包：
 
-1. 直接下载 [Windows 安装包（v1.0.0）](https://github.com/Dream-will-come-true-oneday/Tomato_todo_list/releases/download/v1.0.0/Setup.1.0.0.exe)。无需下载整个项目或安装 Node.js。
-2. 如果直连下载受限，可打开 [发布页](https://github.com/Dream-will-come-true-oneday/Tomato_todo_list/releases/tag/v1.0.0)，在 Assets 中下载 `Setup.1.0.0.exe` 安装包。
+1. 直接下载 [Windows 安装包（v1.0.1）](https://github.com/Dream-will-come-true-oneday/Tomato_todo_list/releases/download/v1.0.1/Setup.1.0.1.exe)。无需下载整个项目或安装 Node.js。
+2. 如果直连下载受限，可打开 [发布页](https://github.com/Dream-will-come-true-oneday/Tomato_todo_list/releases/tag/v1.0.1)，在 Assets 中下载 `Setup.1.0.1.exe` 安装包。
 3. 双击安装包，按安装向导选择安装位置并完成安装。安装完成后会创建桌面快捷方式和开始菜单入口。
 4. 从桌面或开始菜单打开“番茄时钟与待办”。关闭窗口时应用会最小化到系统托盘；需要彻底退出时，请在托盘图标菜单中选择“退出”。
 5. 首次从浏览器版迁移时，按下面的“浏览器迁移到桌面版”步骤导入完整数据。

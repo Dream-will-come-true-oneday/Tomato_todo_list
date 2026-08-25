@@ -406,7 +406,7 @@ export default function App() {
 
   function navigate(nextPage: Page) {
     if (page === 'pomodoro' && nextPage !== 'pomodoro') {
-      const snapshot = timerPanelRef.current?.pauseAndCapture();
+      const snapshot = timerPanelRef.current?.capture();
       if (snapshot) setTimerSnapshot(snapshot);
     }
     setPage(nextPage);
