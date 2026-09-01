@@ -26,6 +26,13 @@ type UpdaterStatus =
   | { phase: 'downloaded'; version: string }
   | { phase: 'error'; message: string };
 
+function summarizeUpdateError(error: unknown): string {
+  const firstLine = (error instanceof Error ? error.message : String(error)).split('\n')[0].trim();
+  if (firstLine.includes('latest.yml')) return '未找到更新描述文件，新版本可能尚未发布';
+  if (firstLine.includes('net::') || firstLine.toLowerCase().includes('network')) return '网络连接失败，请检查网络后重试';
+  return firstLine || '更新检查失败';
+}
+
 function sendUpdaterStatus(status: UpdaterStatus) {
   mainWindow?.webContents.send('updater:status', status);
 }
@@ -36,7 +43,7 @@ function setupUpdater() {
   autoUpdater.on('update-not-available', () => sendUpdaterStatus({ phase: 'not-available' }));
   autoUpdater.on('download-progress', (progress) => sendUpdaterStatus({ phase: 'downloading', percent: progress.percent }));
   autoUpdater.on('update-downloaded', (info) => sendUpdaterStatus({ phase: 'downloaded', version: info.version }));
-  autoUpdater.on('error', (error) => sendUpdaterStatus({ phase: 'error', message: error.message || '更新检查失败' }));
+  autoUpdater.on('error', (error) => sendUpdaterStatus({ phase: 'error', message: summarizeUpdateError(error) }));
 }
 
 function loadSchedulerState() {
@@ -166,7 +173,7 @@ function registerIpc() {
       await autoUpdater.checkForUpdates();
       return { phase: 'checking' };
     } catch (error) {
-      return { phase: 'error', message: error instanceof Error ? error.message : '更新检查失败' };
+      return { phase: 'error', message: summarizeUpdateError(error) };
     }
   });
   ipcMain.handle('updater:download', async () => {

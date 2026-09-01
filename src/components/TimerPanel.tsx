@@ -263,6 +263,79 @@ const TimerPanel = forwardRef<TimerPanelHandle, Props>(function TimerPanel({ pre
     [completedFocusCount, isRunning, phase, phaseCompletion, remainingSeconds]
   );
 
+  // Keyboard shortcuts: latest actions live in a ref so a single window
+  // listener can stay mounted for the whole panel lifetime.
+  const shortcutActionsRef = useRef<{ toggle: () => void; reset: () => void; skip: (() => void) | null }>({
+    toggle: () => {},
+    reset: () => {},
+    skip: null
+  });
+
+  useEffect(() => {
+    shortcutActionsRef.current = {
+      // Mirrors the toggle button: pause while running, otherwise start
+      // (which confirms a pending completion notice first).
+      toggle: () => (isRunning ? pause() : start()),
+      reset,
+      // Mirrors the skip button, which is disabled while a completion notice waits.
+      skip: phaseCompletion ? null : skip
+    };
+  });
+
+  useEffect(() => {
+    const isEditableTarget = (target: EventTarget | null) => {
+      if (!(target instanceof HTMLElement)) return false;
+      return (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.tagName === 'SELECT' ||
+        target.isContentEditable
+      );
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing) return;
+      // Avoid clashing with browser shortcuts such as Ctrl+R / Ctrl+S and
+      // IME full/half-width toggling (Shift+Space).
+      if (event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
+      // Ignore auto-repeated keydowns from held-down keys so a long Space
+      // press does not toggle start/pause at the system repeat rate.
+      if (event.repeat) return;
+      if (isEditableTarget(event.target)) return;
+      // Let focused native buttons and links keep their keyboard activation
+      // (Space) instead of toggling the timer, and never hijack R/S while a
+      // focusable control is being operated (WCAG 2.1.1 keyboard access).
+      if (event.target instanceof HTMLElement && event.target.closest('button, a, [role="button"]')) {
+        return;
+      }
+      // While a modal dialog is open, focus usually sits on a dialog button
+      // (not an editable element), so Space/R/S would leak through to the
+      // timer behind the dialog and Space's preventDefault would also block
+      // the dialog button's keyboard activation.
+      if (document.querySelector('[role="dialog"][aria-modal="true"], [role="alertdialog"]')) return;
+
+      const actions = shortcutActionsRef.current;
+      if (event.code === 'Space' || event.key === ' ') {
+        event.preventDefault();
+        actions.toggle();
+        return;
+      }
+      if (event.code === 'KeyR' || event.key === 'r' || event.key === 'R') {
+        event.preventDefault();
+        actions.reset();
+        return;
+      }
+      if (event.code === 'KeyS' || event.key === 's' || event.key === 'S') {
+        if (!actions.skip) return;
+        event.preventDefault();
+        actions.skip();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   useEffect(() => {
     if (!isRunning) return;
 
@@ -315,6 +388,13 @@ const TimerPanel = forwardRef<TimerPanelHandle, Props>(function TimerPanel({ pre
           跳过
         </button>
       </div>
+      <p className="timer-shortcut-hint">
+        <kbd>Space</kbd> 开始 / 暂停
+        <span aria-hidden="true">·</span>
+        <kbd>R</kbd> 重置
+        <span aria-hidden="true">·</span>
+        <kbd>S</kbd> 跳过
+      </p>
     </section>
   );
 });
