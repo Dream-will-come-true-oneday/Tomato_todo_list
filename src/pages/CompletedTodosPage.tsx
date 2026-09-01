@@ -1,5 +1,6 @@
 import { ChevronRight } from 'lucide-react';
 import { useState } from 'react';
+import { DatePicker } from '../components/DatePicker';
 import { PageTitle } from '../components/PageTitle';
 import {
   AchievementIcon,
@@ -63,7 +64,12 @@ export default function CompletedTodosPage({
       <div className="toolbar narrow-toolbar">
         <label>
           日期
-          <input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
+          <DatePicker
+            ariaLabel="已完成页筛选日期"
+            value={date}
+            clearable={false}
+            onChange={(next) => setDate(next ?? toDateKey())}
+          />
         </label>
       </div>
       <TodoFilterBar

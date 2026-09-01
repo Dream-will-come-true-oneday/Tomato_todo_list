@@ -16,6 +16,7 @@ import {
   createTypeTag
 } from './domain/defaultData';
 import {
+  getCurrentScheduleItem,
   getLatestMissedScheduleReminder,
   getScheduleReminderKey,
   type ScheduleReminder
@@ -264,6 +265,17 @@ export default function App() {
     [data.todos, data.todayPlans, today]
   );
 
+  const homeOverview = useMemo(
+    () => ({
+      todayTodoCount: todayPlanTodos.length,
+      todayPomodoroCount: data.pomodoroRecords.filter(
+        (record) => record.completionType === 'completed' && toDateKey(new Date(record.startedAt)) === today
+      ).length,
+      currentScheduleItem: getCurrentScheduleItem(data.dailySchedule.items)
+    }),
+    [todayPlanTodos, data.pomodoroRecords, data.dailySchedule.items, today]
+  );
+
   useEffect(() => {
     if (selectedPomodoroTodoId && todayPlanTodos.some((todo) => todo.id === selectedPomodoroTodoId)) return;
     setSelectedPomodoroTodoId(todayPlanTodos[0]?.id ?? null);
@@ -340,7 +352,7 @@ export default function App() {
       </button>
       {page !== 'home' && <TopNav page={page} onNavigate={navigate} />}
 
-      {page === 'home' && <HomePage onNavigate={navigate} />}
+      {page === 'home' && <HomePage overview={homeOverview} onNavigate={navigate} />}
       {page === 'pomodoro' && (
         <PomodoroPage
           activePreset={activePreset}
@@ -405,6 +417,9 @@ export default function App() {
           onFocusHandled={() => setTodoTagFocusId(null)}
           focusNewTodoSignal={newTodoFocusSignal}
           onToast={showToast}
+          sortMode={data.todoSortMode}
+          onSortModeChange={(mode) => dispatchData({ type: 'setTodoSortMode', mode })}
+          onReorderTodos={(parentId, orderedIds) => dispatchData({ type: 'reorderTodos', parentId, orderedIds })}
         />
       )}
       {page === 'completed' && (

@@ -1334,7 +1334,7 @@ button:disabled {
 
 .title-cell {
   display: grid;
-  grid-template-columns: 30px auto minmax(0, 1fr) auto;
+  grid-template-columns: 52px auto minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-sm);
 }
@@ -1342,8 +1342,10 @@ button:disabled {
 .tree-gutter {
   position: relative;
   display: inline-grid;
-  place-items: center;
-  width: 30px;
+  grid-template-columns: 16px 30px;
+  align-items: center;
+  justify-items: center;
+  width: 50px;
   height: 30px;
 }
 
@@ -1351,10 +1353,63 @@ button:disabled {
   position: absolute;
   top: -18px;
   bottom: 15px;
-  left: 50%;
+  left: 31px;
   width: 1px;
   background: rgba(155, 47, 37, 0.28);
   content: '';
+}
+
+.row-drag-handle {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 26px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: grab;
+  padding: 0;
+  touch-action: none;
+}
+
+.row-drag-handle:hover,
+.row-drag-handle:focus-visible {
+  background: rgba(146, 108, 55, 0.12);
+  color: var(--cinnabar-dark);
+}
+
+.todo-row.row-dragging {
+  opacity: 0.55;
+  box-shadow: var(--shadow-2);
+}
+
+.sort-mode-toggle {
+  display: inline-flex;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-full);
+  background: rgba(255, 250, 239, 0.84);
+  overflow: hidden;
+}
+
+.sort-mode-toggle button {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+  padding: 4px var(--space-md);
+  cursor: pointer;
+}
+
+.sort-mode-toggle button + button {
+  border-left: 1px solid var(--line-strong);
+}
+
+.sort-mode-toggle button.active {
+  background: var(--cinnabar);
+  color: #fff8eb;
 }
 
 .child-row .tree-gutter > * {
@@ -3036,4 +3091,160 @@ button:disabled {
   color: var(--muted);
   font-size: 12px;
   white-space: nowrap;
+}
+
+/* ---------- 日期选择器（DatePicker 门户弹层） ---------- */
+
+.date-picker-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-height: 34px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface, rgba(255, 250, 239, 0.84));
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  padding: var(--space-xs) var(--space-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.date-picker-trigger.has-value {
+  color: var(--ink);
+}
+
+.date-picker-trigger:hover,
+.date-picker-trigger:focus-visible {
+  border-color: var(--cinnabar);
+  color: var(--cinnabar-dark);
+}
+
+.date-picker-popup {
+  position: fixed;
+  z-index: 1200;
+  display: grid;
+  gap: var(--space-xs);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: #fffaf0;
+  box-shadow: var(--shadow-3);
+  padding: var(--space-sm);
+}
+
+.date-picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.date-picker-header strong {
+  font-size: 13px;
+}
+
+.date-picker-header button {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+}
+
+.date-picker-header button:hover,
+.date-picker-header button:focus-visible {
+  border-color: var(--line-strong);
+  color: var(--cinnabar-dark);
+}
+
+.date-picker-weekdays,
+.date-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 34px);
+  justify-items: center;
+  gap: 2px;
+}
+
+.date-picker-weekdays span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.date-picker-day {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.date-picker-day.is-empty {
+  pointer-events: none;
+}
+
+.date-picker-day:hover,
+.date-picker-day:focus-visible {
+  border-color: var(--line-strong);
+  background: rgba(146, 108, 55, 0.1);
+}
+
+.date-picker-day.is-today {
+  border-color: rgba(49, 95, 77, 0.4);
+}
+
+.date-picker-day.is-selected {
+  border-color: var(--cinnabar);
+  background: var(--cinnabar);
+  color: #fff8eb;
+  font-weight: 900;
+}
+
+.date-picker-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ---------- 首页今日概览 ---------- */
+
+.home-overview {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(150px, 1fr));
+  gap: var(--space-md);
+  width: min(680px, 88vw);
+  margin-top: var(--space-lg);
+}
+
+.home-metric {
+  display: grid;
+  gap: var(--space-xs);
+  justify-items: center;
+  text-align: center;
+}
+
+.home-metric strong {
+  display: grid;
+  gap: 2px;
+  justify-items: center;
+  font-size: 17px;
+}
+
+.home-metric small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
 }

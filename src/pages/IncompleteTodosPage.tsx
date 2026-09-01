@@ -1,13 +1,21 @@
 import { CalendarDays, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { DatePicker } from '../components/DatePicker';
 import { PageTitle } from '../components/PageTitle';
 import { TodoFilterBar } from '../components/todo/TodoFilterBar';
 import { TodoTable } from '../components/todo/TodoTable';
 import { createDefaultTodo } from '../domain/defaultData';
 import { isIncompleteTodo, toDateKey } from '../domain/todoFilters';
-import type { Todo, TodoTerm } from '../domain/types';
+import type { Todo, TodoSortMode, TodoTerm } from '../domain/types';
 import { nullableDate } from '../lib/dateUtils';
-import { defaultTodoFilters, matchesTodoFilters, matchesTodoSearch, type TodoFilterState } from '../domain/todoView';
+import {
+  compareTodosBySchedule,
+  compareTodosManual,
+  defaultTodoFilters,
+  matchesTodoFilters,
+  matchesTodoSearch,
+  type TodoFilterState
+} from '../domain/todoView';
 
 export default function IncompleteTodosPage({
   data,
@@ -22,7 +30,10 @@ export default function IncompleteTodosPage({
   focusTodoId,
   onFocusHandled,
   focusNewTodoSignal,
-  onToast
+  onToast,
+  sortMode,
+  onSortModeChange,
+  onReorderTodos
 }: {
   data: {
     todos: Todo[];
@@ -40,6 +51,9 @@ export default function IncompleteTodosPage({
   onFocusHandled: () => void;
   focusNewTodoSignal: number;
   onToast: (message: string) => void;
+  sortMode: TodoSortMode;
+  onSortModeChange: (mode: TodoSortMode) => void;
+  onReorderTodos: (parentId: string | null, orderedIds: string[]) => void;
 }) {
   const [title, setTitle] = useState('');
   const [term, setTerm] = useState<TodoTerm>('short');
@@ -62,6 +76,7 @@ export default function IncompleteTodosPage({
     .filter(isIncompleteTodo)
     .filter((todo) => matchesTodoFilters(todo, filters))
     .filter((todo) => matchesTodoSearch(todo, searchQuery));
+  const sortedIncompleteTodos = [...incompleteTodos].sort(sortMode === 'manual' ? compareTodosManual : compareTodosBySchedule);
   const visibleTodayPlanCandidates = incompleteTodos.filter((todo) => !todayPlanTodoIdSet.has(todo.id));
   const selectedEligibleTodoIds = selectedTodayPlanTodoIds.filter((todoId) =>
     visibleTodayPlanCandidates.some((todo) => todo.id === todoId)
@@ -181,8 +196,16 @@ export default function IncompleteTodosPage({
           <option value="short">短期</option>
           <option value="long">长期</option>
         </select>
-        <input aria-label="新增开始日期" type="date" value={startAt} onChange={(event) => setStartAt(event.target.value)} />
-        <input aria-label="新增截止日期" type="date" value={dueAt} onChange={(event) => setDueAt(event.target.value)} />
+        <DatePicker
+          ariaLabel="新增开始日期"
+          value={startAt || null}
+          onChange={(next) => setStartAt(next ?? '')}
+        />
+        <DatePicker
+          ariaLabel="新增截止日期"
+          value={dueAt || null}
+          onChange={(next) => setDueAt(next ?? '')}
+        />
         <button type="button" onClick={addTodo}>
           <Plus size={17} />
           新增
@@ -261,7 +284,7 @@ export default function IncompleteTodosPage({
       </div>
       <TodoTable
         title="短期待办"
-        todos={incompleteTodos.filter((todo) => todo.term === 'short')}
+        todos={sortedIncompleteTodos.filter((todo) => todo.term === 'short')}
         typeTags={data.typeTags}
         showCheckIn={false}
         focusTodoId={effectiveFocusTodoId}
@@ -275,10 +298,13 @@ export default function IncompleteTodosPage({
         onUpdateTodo={onUpdateTodo}
         onToggleTodoCheckIn={toggleTodoCheckIn}
         onCompletionBlocked={(todo) => requestTagFix(todo, '完成')}
+        sortMode={sortMode}
+        onSortModeChange={onSortModeChange}
+        onReorderTodos={onReorderTodos}
       />
       <TodoTable
         title="长期待办"
-        todos={incompleteTodos.filter((todo) => todo.term === 'long')}
+        todos={sortedIncompleteTodos.filter((todo) => todo.term === 'long')}
         typeTags={data.typeTags}
         showCheckIn={true}
         focusTodoId={effectiveFocusTodoId}
@@ -292,6 +318,9 @@ export default function IncompleteTodosPage({
         onUpdateTodo={onUpdateTodo}
         onToggleTodoCheckIn={toggleTodoCheckIn}
         onCompletionBlocked={(todo) => requestTagFix(todo, '完成')}
+        sortMode={sortMode}
+        onSortModeChange={onSortModeChange}
+        onReorderTodos={onReorderTodos}
       />
     </section>
   );

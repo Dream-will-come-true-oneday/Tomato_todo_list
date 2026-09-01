@@ -75,3 +75,16 @@ export function compareTodosBySchedule(a: Todo, b: Todo) {
 
   return a.createdAt.localeCompare(b.createdAt) || a.title.localeCompare(b.title);
 }
+
+/**
+ * 手动排序：已手动排（order 非空）按 order 升序且排在未排成员之前；
+ * 未手动排的成员之间沿用日程序，保证切换模式时未拖拽过的分组不跳动。
+ */
+export function compareTodosManual(a: Todo, b: Todo) {
+  const aOrder = a.order ?? null;
+  const bOrder = b.order ?? null;
+  if (aOrder !== null && bOrder !== null && aOrder !== bOrder) return aOrder - bOrder;
+  if (aOrder !== null && bOrder === null) return -1;
+  if (aOrder === null && bOrder !== null) return 1;
+  return compareTodosBySchedule(a, b);
+}

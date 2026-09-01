@@ -62,6 +62,7 @@ function migrateTodo(todo: Partial<Todo>): Todo {
     typeTagIds: Array.isArray(todo.typeTagIds) ? todo.typeTagIds : [],
     startAt: typeof todo.startAt === 'string' ? todo.startAt : null,
     dueAt: typeof todo.dueAt === 'string' ? todo.dueAt : null,
+    order: typeof todo.order === 'number' ? todo.order : null,
     createdAt: todo.createdAt ?? now,
     updatedAt: todo.updatedAt ?? now,
     completedAt: todo.completedAt ?? (status === 'completed' ? now : null),
@@ -287,6 +288,7 @@ function migrateAppData(value: StoredAppData): AppData | null {
     pomodoroRecords: Array.isArray(value.pomodoroRecords) ? value.pomodoroRecords : [],
     todayPlans: migrateTodayPlans(value.todayPlans),
     dailySchedule: migrateDailySchedule(value.dailySchedule),
+    todoSortMode: value.todoSortMode === 'manual' ? 'manual' : 'schedule',
     activePresetId:
       typeof value.activePresetId === 'string' && presets.some((preset) => preset.id === value.activePresetId)
         ? value.activePresetId

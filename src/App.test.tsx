@@ -405,6 +405,68 @@ describe('App workflows', () => {
     expect(document.activeElement?.getAttribute('aria-label')).toBe('新增待办标题');
   });
 
+  it('shows today overview cards on the home page', () => {
+    const today = toDateKey();
+    const data = createDefaultAppData();
+    data.todos = [
+      createDefaultTodo('今日概览任务', { startAt: today, dueAt: today, status: 'active' }),
+      createDefaultTodo('未排期待办', { startAt: null, dueAt: null, status: 'active' })
+    ];
+    data.pomodoroRecords = [
+      {
+        id: 'record-overview',
+        todoId: data.todos[0].id,
+        presetId: data.presets[0].id,
+        startedAt: new Date().toISOString(),
+        endedAt: new Date().toISOString(),
+        plannedFocusMinutes: 25,
+        actualElapsedSeconds: 1500,
+        completionType: 'completed'
+      }
+    ];
+    data.dailySchedule = {
+      enabled: true,
+      soundEnabled: false,
+      desktopNotificationEnabled: false,
+      autoLaunch: false,
+      items: [
+        { id: 'schedule-overview', startTime: '00:00', endTime: '23:59', title: '全天候测试时段', rule: '', enabled: true }
+      ]
+    };
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+
+    render(<App />);
+
+    expect(screen.getByText('今日待办')).toBeTruthy();
+    expect(screen.getByText('1 项')).toBeTruthy();
+    expect(screen.getByText('今日番茄')).toBeTruthy();
+    expect(screen.getByText('1 个')).toBeTruthy();
+    expect(screen.getByText('当前时段')).toBeTruthy();
+    expect(screen.getByText('全天候测试时段')).toBeTruthy();
+  });
+
+  it('persists the manual sort mode toggle across reloads', () => {
+    const { unmount } = render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: '待办事项' }));
+    fireEvent.click(screen.getByRole('button', { name: /未完成待办/ }));
+
+    const shortToggle = screen.getByRole('group', { name: '短期待办 排序模式' });
+    const longToggle = screen.getByRole('group', { name: '长期待办 排序模式' });
+    expect(within(shortToggle).getByRole('button', { name: '按日程' }).getAttribute('aria-pressed')).toBe('true');
+
+    fireEvent.click(within(shortToggle).getByRole('button', { name: '手动' }));
+    expect(within(shortToggle).getByRole('button', { name: '手动' }).getAttribute('aria-pressed')).toBe('true');
+    expect(within(longToggle).getByRole('button', { name: '手动' }).getAttribute('aria-pressed')).toBe('true');
+
+    unmount();
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: '待办事项' }));
+    fireEvent.click(screen.getByRole('button', { name: /未完成待办/ }));
+
+    const reloadedToggle = screen.getByRole('group', { name: '短期待办 排序模式' });
+    expect(within(reloadedToggle).getByRole('button', { name: '手动' }).getAttribute('aria-pressed')).toBe('true');
+  });
+
   it('shows a same-day completed and checked-in todo as one completed achievement', () => {
     const today = toDateKey();
     const data = createDefaultAppData();

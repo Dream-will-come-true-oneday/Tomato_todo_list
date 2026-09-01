@@ -1,11 +1,25 @@
-import { CalendarCheck2, ChevronDown, ChevronRight, Plus, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+  type DraggableAttributes,
+  type DraggableSyntheticListeners
+} from '@dnd-kit/core';
+import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { CalendarCheck2, ChevronDown, ChevronRight, GripVertical, Plus, Trash2 } from 'lucide-react';
+import { useState, type CSSProperties } from 'react';
+import { DatePicker } from '../DatePicker';
 import { createDefaultTodo } from '../../domain/defaultData';
 import { toDateKey } from '../../domain/todoFilters';
 import { getTodoTimeBadge, isOverdue } from '../../domain/todoStatus';
-import type { Todo, TodoStatus, TodoTerm, UrgencyTag } from '../../domain/types';
+import type { Todo, TodoSortMode, TodoStatus, TodoTerm, UrgencyTag } from '../../domain/types';
 import { asInputDate, nullableDate } from '../../lib/dateUtils';
-import { compareTodosBySchedule, statusLabels, urgencyLabels } from '../../domain/todoView';
+import { statusLabels, urgencyLabels } from '../../domain/todoView';
 
 export function TodoTable({
   title,
@@ -22,7 +36,10 @@ export function TodoTable({
   showCheckIn,
   focusTodoId,
   guideTodoId = null,
-  guideMessage = null
+  guideMessage = null,
+  sortMode,
+  onSortModeChange,
+  onReorderTodos
 }: {
   title: string;
   todos: Todo[];
@@ -39,29 +56,85 @@ export function TodoTable({
   focusTodoId: string | null;
   guideTodoId?: string | null;
   guideMessage?: string | null;
+  sortMode: TodoSortMode;
+  onSortModeChange: (mode: TodoSortMode) => void;
+  onReorderTodos: (parentId: string | null, orderedIds: string[]) => void;
 }) {
   const [expandedTodoIds, setExpandedTodoIds] = useState<Set<string>>(() => new Set(todos.map((todo) => todo.id)));
   const [detailTodoIds, setDetailTodoIds] = useState<Set<string>>(() => new Set());
   const visibleTodoIds = new Set(todos.map((todo) => todo.id));
+  // 页面已按排序模式排好传入，这里只按父子分层，不再二次排序
   const roots = todos.filter((todo) => !todo.parentId || !visibleTodoIds.has(todo.parentId));
   const childrenByParent = new Map<string, Todo[]>();
   for (const child of todos.filter((todo) => todo.parentId && visibleTodoIds.has(todo.parentId))) {
     childrenByParent.set(child.parentId!, [...(childrenByParent.get(child.parentId!) ?? []), child]);
   }
-  const sortedRoots = [...roots].sort(compareTodosBySchedule);
   const parentTodoIds = [...childrenByParent.keys()];
 
-  // 斑马纹按“可见事项行”序号计算，详情行不计入；展平结果同时供后续拖拽排序复用
+  // 斑马纹按“可见事项行”序号计算，详情行不计入；flatRows 同时是拖拽分段的唯一数据源
   const flatRows: Array<{ todo: Todo; depth: number }> = [];
   const collectRows = (todo: Todo, depth: number) => {
     flatRows.push({ todo, depth });
     if (expandedTodoIds.has(todo.id)) {
-      for (const child of [...(childrenByParent.get(todo.id) ?? [])].sort(compareTodosBySchedule)) {
+      for (const child of childrenByParent.get(todo.id) ?? []) {
         collectRows(child, depth + 1);
       }
     }
   };
-  for (const root of sortedRoots) collectRows(root, 0);
+  for (const root of roots) collectRows(root, 0);
+
+  const rowSegments: Array<
+    | { kind: 'root'; row: { todo: Todo; depth: number }; zebraEven: boolean }
+    | { kind: 'children'; parentId: string; rows: Array<{ todo: Todo; depth: number; zebraEven: boolean }> }
+  > = [];
+  let zebraCounter = 0;
+  for (let index = 0; index < flatRows.length; ) {
+    const row = flatRows[index];
+    if (row.depth !== 0) {
+      index += 1;
+      continue;
+    }
+    rowSegments.push({ kind: 'root', row, zebraEven: zebraCounter % 2 === 1 });
+    zebraCounter += 1;
+    index += 1;
+    const childRows: Array<{ todo: Todo; depth: number; zebraEven: boolean }> = [];
+    while (index < flatRows.length && flatRows[index].depth > 0) {
+      childRows.push({ ...flatRows[index], zebraEven: zebraCounter % 2 === 1 });
+      zebraCounter += 1;
+      index += 1;
+    }
+    if (childRows.length > 0) rowSegments.push({ kind: 'children', parentId: row.todo.id, rows: childRows });
+  }
+  const rootIds = roots.map((todo) => todo.id);
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+
+  function getSiblingGroupId(todoId: string) {
+    const todo = todos.find((item) => item.id === todoId);
+    if (!todo) return undefined;
+    return todo.parentId && visibleTodoIds.has(todo.parentId) ? todo.parentId : null;
+  }
+
+  function handleDragStart(_event: DragStartEvent) {
+    // 拖拽期间收起详情行：可排序节点只覆盖事项行，详情行跟随会错位
+    setDetailTodoIds(new Set());
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    const activeId = String(event.active.id);
+    const overId = event.over ? String(event.over.id) : null;
+    if (!overId || activeId === overId) return;
+    const activeGroup = getSiblingGroupId(activeId);
+    const overGroup = getSiblingGroupId(overId);
+    if (activeGroup === undefined || overGroup === undefined || activeGroup !== overGroup) return;
+    const siblings = activeGroup === null ? roots : childrenByParent.get(activeGroup) ?? [];
+    const ids = siblings.map((todo) => todo.id);
+    const fromIndex = ids.indexOf(activeId);
+    const toIndex = ids.indexOf(overId);
+    if (fromIndex === -1 || toIndex === -1) return;
+    onSortModeChange('manual');
+    onReorderTodos(activeGroup, arrayMove(ids, fromIndex, toIndex));
+  }
 
   // 标签聚焦流（从未完成页其他入口跳来补标签）要求详情行与聚焦渲染在同一帧展开，
   // 故在渲染期同步调整状态；否则父级 effect 查询标签输入时详情行尚未挂载
@@ -107,6 +180,24 @@ export function TodoTable({
     <section className="table-section">
       <div className="table-section-heading">
         <h2>{title}</h2>
+        <div className="sort-mode-toggle" role="group" aria-label={`${title} 排序模式`}>
+          <button
+            type="button"
+            className={sortMode === 'schedule' ? 'active' : ''}
+            aria-pressed={sortMode === 'schedule'}
+            onClick={() => onSortModeChange('schedule')}
+          >
+            按日程
+          </button>
+          <button
+            type="button"
+            className={sortMode === 'manual' ? 'active' : ''}
+            aria-pressed={sortMode === 'manual'}
+            onClick={() => onSortModeChange('manual')}
+          >
+            手动
+          </button>
+        </div>
         {parentTodoIds.length > 0 && (
           <div className="tree-bulk-actions" aria-label={`${title} 子任务显示`}>
             <button className="btn-secondary" type="button" onClick={expandAllTodoChildren}>
@@ -118,42 +209,76 @@ export function TodoTable({
           </div>
         )}
       </div>
-      <div className="todo-table" role="table" aria-label={title}>
-        <div className={showCheckIn ? 'todo-row table-head has-checkin' : 'todo-row table-head'} role="row">
-          <span>事项</span>
-          <span>日期</span>
-          <span>状态</span>
-          <span>期限</span>
-          {showCheckIn && <span>打卡</span>}
-          <span>操作</span>
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+        <div className="todo-table" role="table" aria-label={title}>
+          <div className={showCheckIn ? 'todo-row table-head has-checkin' : 'todo-row table-head'} role="row">
+            <span>事项</span>
+            <span>日期</span>
+            <span>状态</span>
+            <span>期限</span>
+            {showCheckIn && <span>打卡</span>}
+            <span>操作</span>
+          </div>
+          <SortableContext items={rootIds} strategy={verticalListSortingStrategy}>
+            {rowSegments.map((segment) =>
+              segment.kind === 'root' ? (
+                <SortableTodoRow
+                  key={segment.row.todo.id}
+                  todo={segment.row.todo}
+                  depth={segment.row.depth}
+                  zebraEven={segment.zebraEven}
+                  typeTags={typeTags}
+                  showCheckIn={showCheckIn}
+                  isInTodayPlan={todayPlanTodoIdSet.has(segment.row.todo.id)}
+                  isSelectedForTodayPlan={selectedTodayPlanTodoIds.includes(segment.row.todo.id)}
+                  onToggleTodayPlanSelection={onToggleTodayPlanSelection}
+                  onAddTodo={onAddTodo}
+                  onDeleteTodo={onDeleteTodo}
+                  onUpdateTodo={onUpdateTodo}
+                  onToggleTodoCheckIn={onToggleTodoCheckIn}
+                  onCompletionBlocked={onCompletionBlocked}
+                  hasChildren={(childrenByParent.get(segment.row.todo.id)?.length ?? 0) > 0}
+                  isExpanded={expandedTodoIds.has(segment.row.todo.id)}
+                  onToggleChildren={toggleTodoChildren}
+                  isDetailExpanded={detailTodoIds.has(segment.row.todo.id)}
+                  onToggleDetail={toggleTodoDetail}
+                  showGuide={guideTodoId === segment.row.todo.id && guideMessage !== null}
+                  guideMessage={guideMessage}
+                />
+              ) : (
+                <SortableContext key={segment.parentId} items={segment.rows.map((row) => row.todo.id)} strategy={verticalListSortingStrategy}>
+                  {segment.rows.map(({ todo, depth, zebraEven }) => (
+                    <SortableTodoRow
+                      key={todo.id}
+                      todo={todo}
+                      depth={depth}
+                      zebraEven={zebraEven}
+                      typeTags={typeTags}
+                      showCheckIn={showCheckIn}
+                      isInTodayPlan={todayPlanTodoIdSet.has(todo.id)}
+                      isSelectedForTodayPlan={selectedTodayPlanTodoIds.includes(todo.id)}
+                      onToggleTodayPlanSelection={onToggleTodayPlanSelection}
+                      onAddTodo={onAddTodo}
+                      onDeleteTodo={onDeleteTodo}
+                      onUpdateTodo={onUpdateTodo}
+                      onToggleTodoCheckIn={onToggleTodoCheckIn}
+                      onCompletionBlocked={onCompletionBlocked}
+                      hasChildren={(childrenByParent.get(todo.id)?.length ?? 0) > 0}
+                      isExpanded={expandedTodoIds.has(todo.id)}
+                      onToggleChildren={toggleTodoChildren}
+                      isDetailExpanded={detailTodoIds.has(todo.id)}
+                      onToggleDetail={toggleTodoDetail}
+                      showGuide={guideTodoId === todo.id && guideMessage !== null}
+                      guideMessage={guideMessage}
+                    />
+                  ))}
+                </SortableContext>
+              )
+            )}
+          </SortableContext>
+          {todos.length === 0 && <p className="empty-state table-empty">暂无待办。</p>}
         </div>
-        {flatRows.map(({ todo, depth }, index) => (
-          <TodoRow
-            key={todo.id}
-            todo={todo}
-            depth={depth}
-            zebraEven={index % 2 === 1}
-            typeTags={typeTags}
-            showCheckIn={showCheckIn}
-            isInTodayPlan={todayPlanTodoIdSet.has(todo.id)}
-            isSelectedForTodayPlan={selectedTodayPlanTodoIds.includes(todo.id)}
-            onToggleTodayPlanSelection={onToggleTodayPlanSelection}
-            onAddTodo={onAddTodo}
-            onDeleteTodo={onDeleteTodo}
-            onUpdateTodo={onUpdateTodo}
-            onToggleTodoCheckIn={onToggleTodoCheckIn}
-            onCompletionBlocked={onCompletionBlocked}
-            hasChildren={(childrenByParent.get(todo.id)?.length ?? 0) > 0}
-            isExpanded={expandedTodoIds.has(todo.id)}
-            onToggleChildren={toggleTodoChildren}
-            isDetailExpanded={detailTodoIds.has(todo.id)}
-            onToggleDetail={toggleTodoDetail}
-            showGuide={guideTodoId === todo.id && guideMessage !== null}
-            guideMessage={guideMessage}
-          />
-        ))}
-        {todos.length === 0 && <p className="empty-state table-empty">暂无待办。</p>}
-      </div>
+      </DndContext>
     </section>
   );
 }
@@ -178,7 +303,12 @@ function TodoRow({
   isDetailExpanded,
   onToggleDetail,
   showGuide = false,
-  guideMessage = null
+  guideMessage = null,
+  isDragging = false,
+  sortableRef,
+  dragHandleAttributes,
+  dragHandleListeners,
+  sortableStyle
 }: {
   todo: Todo;
   depth?: number;
@@ -200,6 +330,11 @@ function TodoRow({
   onToggleDetail: (todoId: string) => void;
   showGuide?: boolean;
   guideMessage?: string | null;
+  isDragging?: boolean;
+  sortableRef?: (node: HTMLElement | null) => void;
+  dragHandleAttributes?: DraggableAttributes;
+  dragHandleListeners?: DraggableSyntheticListeners;
+  sortableStyle?: CSSProperties;
 }) {
   const badge = getTodoTimeBadge(todo);
   // 引导条只在待办仍缺有效标签时显示：补上标签后自动消失，无需手动清理
@@ -225,16 +360,27 @@ function TodoRow({
     showCheckIn ? 'has-checkin' : '',
     depth > 0 ? 'child-row' : '',
     zebraEven ? 'todo-row-even' : '',
-    isOverdue(todo) ? 'row-overdue' : ''
+    isOverdue(todo) ? 'row-overdue' : '',
+    isDragging ? 'row-dragging' : ''
   ].filter(Boolean).join(' ');
 
   return (
-    <div className={rowClassName} role="row">
+    <div ref={sortableRef} className={rowClassName} style={sortableStyle} role="row">
       <div
         className="title-cell"
-        style={{ gridTemplateColumns: `${30 + Math.min(depth, 6) * 24}px auto minmax(0, 1fr) auto` }}
+        style={{ gridTemplateColumns: `${52 + Math.min(depth, 6) * 24}px auto minmax(0, 1fr) auto` }}
       >
         <span className="tree-gutter">
+          <button
+            className="row-drag-handle"
+            type="button"
+            aria-label={`拖拽调整 ${todo.title} 排序`}
+            title="拖拽排序"
+            {...dragHandleAttributes}
+            {...dragHandleListeners}
+          >
+            <GripVertical size={14} aria-hidden="true" />
+          </button>
           {hasChildren ? (
             <button
               className={isExpanded ? 'tree-toggle expanded' : 'tree-toggle'}
@@ -264,17 +410,15 @@ function TodoRow({
         {badge && <em className={`badge ${badge.tone}`}>{badge.label}</em>}
       </div>
       <div className="date-cell">
-        <input
-          aria-label={`${todo.title} 开始日期`}
-          type="date"
-          value={asInputDate(todo.startAt)}
-          onChange={(event) => onUpdateTodo(todo, { startAt: nullableDate(event.target.value) })}
+        <DatePicker
+          ariaLabel={`${todo.title} 开始日期`}
+          value={todo.startAt ? asInputDate(todo.startAt) : null}
+          onChange={(next) => onUpdateTodo(todo, { startAt: nullableDate(next ?? '') })}
         />
-        <input
-          aria-label={`${todo.title} 截止日期`}
-          type="date"
-          value={asInputDate(todo.dueAt)}
-          onChange={(event) => onUpdateTodo(todo, { dueAt: nullableDate(event.target.value) })}
+        <DatePicker
+          ariaLabel={`${todo.title} 截止日期`}
+          value={todo.dueAt ? asInputDate(todo.dueAt) : null}
+          onChange={(next) => onUpdateTodo(todo, { dueAt: nullableDate(next ?? '') })}
         />
       </div>
       <select
@@ -360,6 +504,24 @@ function TodoRow({
         </div>
       )}
     </div>
+  );
+}
+
+function SortableTodoRow(props: Omit<Parameters<typeof TodoRow>[0], 'sortableRef' | 'dragHandleAttributes' | 'dragHandleListeners' | 'sortableStyle'>) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: props.todo.id });
+  return (
+    <TodoRow
+      {...props}
+      isDragging={isDragging}
+      sortableRef={setNodeRef}
+      dragHandleAttributes={attributes}
+      dragHandleListeners={listeners}
+      sortableStyle={{
+        transform: CSS.Translate.toString(transform),
+        transition,
+        zIndex: isDragging ? 1 : undefined
+      }}
+    />
   );
 }
 
