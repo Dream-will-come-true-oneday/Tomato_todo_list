@@ -103,7 +103,7 @@ export default function BacklogPage({
     <section className="page-panel table-page">
       <div className="backlog-page-heading">
         <PageTitle eyebrow="待思" title="灵感池" />
-        <button className="ghost-button" type="button" onClick={() => onNavigate('completedBacklog')}>
+        <button className="btn-secondary" type="button" onClick={() => onNavigate('completedBacklog')}>
           <Archive size={17} />
           已完成灵感
         </button>
@@ -154,7 +154,7 @@ export default function BacklogPage({
                   <button className="ghost-button" type="button" onClick={() => setPendingDeleteTagId(null)}>取消</button>
                 </>
               ) : (
-                <button className="ghost-button icon-button" type="button" onClick={() => setPendingDeleteTagId(tag.id)} aria-label={`准备删除灵感标签 ${tag.name}`} title={`删除 ${tag.name}`}>
+                <button className="danger-button icon-button" type="button" onClick={() => setPendingDeleteTagId(tag.id)} aria-label={`准备删除灵感标签 ${tag.name}`} title={`删除 ${tag.name}`}>
                   <Trash2 size={14} />
                 </button>
               )}

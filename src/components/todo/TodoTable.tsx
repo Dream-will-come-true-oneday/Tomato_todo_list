@@ -2,7 +2,7 @@ import { CalendarCheck2, ChevronDown, ChevronRight, Plus, Trash2 } from 'lucide-
 import { useState } from 'react';
 import { createDefaultTodo } from '../../domain/defaultData';
 import { toDateKey } from '../../domain/todoFilters';
-import { getTodoTimeBadge } from '../../domain/todoStatus';
+import { getTodoTimeBadge, isOverdue } from '../../domain/todoStatus';
 import type { Todo, TodoStatus, TodoTerm, UrgencyTag } from '../../domain/types';
 import { asInputDate, nullableDate } from '../../lib/dateUtils';
 import { compareTodosBySchedule, statusLabels, urgencyLabels } from '../../domain/todoView';
@@ -46,6 +46,18 @@ export function TodoTable({
   }
   const sortedRoots = [...roots].sort(compareTodosBySchedule);
   const parentTodoIds = [...childrenByParent.keys()];
+
+  // 斑马纹按“可见事项行”序号计算，详情行不计入；展平结果同时供后续拖拽排序复用
+  const flatRows: Array<{ todo: Todo; depth: number }> = [];
+  const collectRows = (todo: Todo, depth: number) => {
+    flatRows.push({ todo, depth });
+    if (expandedTodoIds.has(todo.id)) {
+      for (const child of [...(childrenByParent.get(todo.id) ?? [])].sort(compareTodosBySchedule)) {
+        collectRows(child, depth + 1);
+      }
+    }
+  };
+  for (const root of sortedRoots) collectRows(root, 0);
 
   // 标签聚焦流（从未完成页其他入口跳来补标签）要求详情行与聚焦渲染在同一帧展开，
   // 故在渲染期同步调整状态；否则父级 effect 查询标签输入时详情行尚未挂载
@@ -93,10 +105,10 @@ export function TodoTable({
         <h2>{title}</h2>
         {parentTodoIds.length > 0 && (
           <div className="tree-bulk-actions" aria-label={`${title} 子任务显示`}>
-            <button className="ghost-button" type="button" onClick={expandAllTodoChildren}>
+            <button className="btn-secondary" type="button" onClick={expandAllTodoChildren}>
               全部展开
             </button>
-            <button className="ghost-button" type="button" onClick={collapseAllTodoChildren}>
+            <button className="btn-secondary" type="button" onClick={collapseAllTodoChildren}>
               全部收起
             </button>
           </div>
@@ -111,25 +123,27 @@ export function TodoTable({
           {showCheckIn && <span>打卡</span>}
           <span>操作</span>
         </div>
-        {sortedRoots.map((todo) => (
-          <TodoRows
+        {flatRows.map(({ todo, depth }, index) => (
+          <TodoRow
             key={todo.id}
             todo={todo}
-            childrenByParent={childrenByParent}
+            depth={depth}
+            zebraEven={index % 2 === 1}
             typeTags={typeTags}
             showCheckIn={showCheckIn}
-            todayPlanTodoIdSet={todayPlanTodoIdSet}
-            selectedTodayPlanTodoIds={selectedTodayPlanTodoIds}
+            isInTodayPlan={todayPlanTodoIdSet.has(todo.id)}
+            isSelectedForTodayPlan={selectedTodayPlanTodoIds.includes(todo.id)}
             onToggleTodayPlanSelection={onToggleTodayPlanSelection}
             onAddTodo={onAddTodo}
             onDeleteTodo={onDeleteTodo}
             onUpdateTodo={onUpdateTodo}
             onToggleTodoCheckIn={onToggleTodoCheckIn}
             onCompletionBlocked={onCompletionBlocked}
-            expandedTodoIds={expandedTodoIds}
-            detailTodoIds={detailTodoIds}
-            onToggleTodoChildren={toggleTodoChildren}
-            onToggleTodoDetail={toggleTodoDetail}
+            hasChildren={(childrenByParent.get(todo.id)?.length ?? 0) > 0}
+            isExpanded={expandedTodoIds.has(todo.id)}
+            onToggleChildren={toggleTodoChildren}
+            isDetailExpanded={detailTodoIds.has(todo.id)}
+            onToggleDetail={toggleTodoDetail}
           />
         ))}
         {todos.length === 0 && <p className="empty-state table-empty">暂无待办。</p>}
@@ -138,97 +152,10 @@ export function TodoTable({
   );
 }
 
-function TodoRows({
-  todo,
-  childrenByParent,
-  typeTags,
-  showCheckIn,
-  todayPlanTodoIdSet,
-  selectedTodayPlanTodoIds,
-  onToggleTodayPlanSelection,
-  onAddTodo,
-  onUpdateTodo,
-  onToggleTodoCheckIn,
-  onDeleteTodo,
-  onCompletionBlocked,
-  expandedTodoIds,
-  detailTodoIds,
-  onToggleTodoChildren,
-  onToggleTodoDetail,
-  depth = 0
-}: {
-  todo: Todo;
-  childrenByParent: Map<string, Todo[]>;
-  typeTags: { id: string; name: string; color: string }[];
-  showCheckIn: boolean;
-  todayPlanTodoIdSet: Set<string>;
-  selectedTodayPlanTodoIds: string[];
-  onToggleTodayPlanSelection: (todoId: string, checked: boolean) => void;
-  onAddTodo: (todo: Todo) => void;
-  onUpdateTodo: (todo: Todo, patch: Partial<Todo>) => void;
-  onToggleTodoCheckIn: (todo: Todo) => void;
-  onDeleteTodo: (todoId: string) => void;
-  onCompletionBlocked: (todo: Todo) => void;
-  expandedTodoIds: Set<string>;
-  detailTodoIds: Set<string>;
-  onToggleTodoChildren: (todoId: string) => void;
-  onToggleTodoDetail: (todoId: string) => void;
-  depth?: number;
-}) {
-  const children = [...(childrenByParent.get(todo.id) ?? [])].sort(compareTodosBySchedule);
-  const hasChildren = children.length > 0;
-  const isExpanded = expandedTodoIds.has(todo.id);
-
-  return (
-    <>
-      <TodoRow
-        todo={todo}
-        depth={depth}
-        typeTags={typeTags}
-        showCheckIn={showCheckIn}
-        isInTodayPlan={todayPlanTodoIdSet.has(todo.id)}
-        isSelectedForTodayPlan={selectedTodayPlanTodoIds.includes(todo.id)}
-        onToggleTodayPlanSelection={onToggleTodayPlanSelection}
-        onAddTodo={onAddTodo}
-        onDeleteTodo={onDeleteTodo}
-        onUpdateTodo={onUpdateTodo}
-        onToggleTodoCheckIn={onToggleTodoCheckIn}
-        onCompletionBlocked={onCompletionBlocked}
-        hasChildren={hasChildren}
-        isExpanded={isExpanded}
-        onToggleChildren={onToggleTodoChildren}
-        isDetailExpanded={detailTodoIds.has(todo.id)}
-        onToggleDetail={onToggleTodoDetail}
-      />
-      {hasChildren && isExpanded && children.map((child) => (
-        <TodoRows
-          key={child.id}
-          todo={child}
-          childrenByParent={childrenByParent}
-          depth={depth + 1}
-          typeTags={typeTags}
-          showCheckIn={showCheckIn}
-          todayPlanTodoIdSet={todayPlanTodoIdSet}
-          selectedTodayPlanTodoIds={selectedTodayPlanTodoIds}
-          onToggleTodayPlanSelection={onToggleTodayPlanSelection}
-          onAddTodo={onAddTodo}
-          onDeleteTodo={onDeleteTodo}
-          onUpdateTodo={onUpdateTodo}
-          onToggleTodoCheckIn={onToggleTodoCheckIn}
-          onCompletionBlocked={onCompletionBlocked}
-          expandedTodoIds={expandedTodoIds}
-          detailTodoIds={detailTodoIds}
-          onToggleTodoChildren={onToggleTodoChildren}
-          onToggleTodoDetail={onToggleTodoDetail}
-        />
-      ))}
-    </>
-  );
-}
-
 function TodoRow({
   todo,
   depth = 0,
+  zebraEven = false,
   typeTags,
   showCheckIn,
   isInTodayPlan,
@@ -247,6 +174,7 @@ function TodoRow({
 }: {
   todo: Todo;
   depth?: number;
+  zebraEven?: boolean;
   typeTags: { id: string; name: string; color: string }[];
   showCheckIn: boolean;
   isInTodayPlan: boolean;
@@ -279,7 +207,13 @@ function TodoRow({
     });
   }
 
-  const rowClassName = ['todo-row', showCheckIn ? 'has-checkin' : '', depth > 0 ? 'child-row' : ''].filter(Boolean).join(' ');
+  const rowClassName = [
+    'todo-row',
+    showCheckIn ? 'has-checkin' : '',
+    depth > 0 ? 'child-row' : '',
+    zebraEven ? 'todo-row-even' : '',
+    isOverdue(todo) ? 'row-overdue' : ''
+  ].filter(Boolean).join(' ');
 
   return (
     <div className={rowClassName} role="row">
@@ -362,7 +296,7 @@ function TodoRow({
         >
           <ChevronDown size={16} aria-hidden="true" />
         </button>
-        <button className="ghost-button icon-button" type="button" onClick={() => onDeleteTodo(todo.id)} aria-label={`删除 ${todo.title}`}>
+        <button className="danger-button icon-button" type="button" onClick={() => onDeleteTodo(todo.id)} aria-label={`删除 ${todo.title}`}>
           <Trash2 size={16} />
         </button>
       </div>

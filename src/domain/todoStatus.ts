@@ -39,6 +39,15 @@ export function isCompletedLate(todo: Todo) {
   return completedAt.getTime() > due.getTime();
 }
 
+export function isOverdue(todo: Todo, now = new Date()) {
+  if (todo.status === 'completed' || todo.status === 'archived' || !todo.dueAt) return false;
+
+  const due = parseDueDate(todo.dueAt);
+  if (Number.isNaN(due.getTime())) return false;
+
+  return due.getTime() < now.getTime();
+}
+
 function parseStartDate(value: string) {
   return DATE_ONLY_PATTERN.test(value) ? parseLocalDateOnly(value) : new Date(value);
 }

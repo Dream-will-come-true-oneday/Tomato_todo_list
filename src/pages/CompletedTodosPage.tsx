@@ -74,10 +74,10 @@ export default function CompletedTodosPage({
       />
       {completedGroups.some((group) => group.children.length > 0) && (
         <div className="tree-bulk-actions completed-tree-actions" aria-label="已完成待办子任务显示">
-          <button className="ghost-button" type="button" onClick={expandAllCompletedGroups}>
+          <button className="btn-secondary" type="button" onClick={expandAllCompletedGroups}>
             全部展开
           </button>
-          <button className="ghost-button" type="button" onClick={collapseAllCompletedGroups}>
+          <button className="btn-secondary" type="button" onClick={collapseAllCompletedGroups}>
             全部收起
           </button>
         </div>
@@ -89,7 +89,7 @@ export default function CompletedTodosPage({
           const isExpanded = isCompletedGroupExpanded(group);
           return (
             <div className="done-group" key={group.parent.id}>
-              <div className="done-row done-parent">
+              <div className="done-row done-parent row-completed">
                 {hasChildren ? (
                   <button
                     className={isExpanded ? 'tree-toggle expanded' : 'tree-toggle'}
@@ -119,7 +119,7 @@ export default function CompletedTodosPage({
                 <span>{achievementTime(group.parent, group.parentAchievementKind)}</span>
               </div>
               {hasChildren && isExpanded && group.children.map(({ todo: child, achievementKind }) => (
-                <div className="done-row done-child" key={child.id}>
+                <div className="done-row done-child row-completed" key={child.id}>
                   <span className="tree-toggle-spacer" aria-hidden="true" />
                   <span className="branch-mark">└</span>
                   <strong>{child.title}</strong>

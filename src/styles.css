@@ -21,9 +21,19 @@
   --jade: #315f4d;
   --gold: #9a7333;
   --wash: rgba(255, 250, 239, 0.72);
-  --shadow: 0 18px 48px rgba(77, 49, 25, 0.18);
-  --shadow-soft: 0 10px 28px rgba(77, 49, 25, 0.12);
-  --radius: 8px;
+  /* 阴影三级：1 resting（按钮底缘） / 2 raised（卡片悬浮） / 3 overlay（弹窗） */
+  --shadow-1: 0 2px 0 rgba(111, 33, 26, 0.12);
+  --shadow-1-hover: 0 8px 18px rgba(111, 33, 26, 0.18);
+  --shadow-2: 0 10px 28px rgba(77, 49, 25, 0.12);
+  --shadow-3: 0 22px 60px rgba(43, 28, 16, 0.24);
+  --shadow-soft: var(--shadow-2);
+  --shadow: var(--shadow-3);
+  /* 圆角四档：sm 控件 / md 面板默认 / lg 大面板 / full 药丸与正圆 */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 999px;
+  --radius: var(--radius-md);
   --surface: rgba(255, 250, 239, 0.82);
   --surface-raised: rgba(255, 252, 244, 0.94);
   --focus-ring: rgba(49, 95, 77, 0.28);
@@ -60,20 +70,20 @@ button {
   gap: var(--space-sm);
   min-height: 44px;
   border: 1px solid var(--cinnabar-dark);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--cinnabar);
   color: #fff8eb;
   font-weight: 700;
   padding: var(--space-sm) var(--space-lg);
   cursor: pointer;
-  box-shadow: 0 2px 0 rgba(111, 33, 26, 0.12);
+  box-shadow: var(--shadow-1);
   touch-action: manipulation;
   transition: transform var(--motion-fast), filter var(--motion-fast), box-shadow var(--motion-fast), background var(--motion-fast), border-color var(--motion-fast);
 }
 
 button:hover {
   filter: brightness(1.05);
-  box-shadow: 0 8px 18px rgba(111, 33, 26, 0.18);
+  box-shadow: var(--shadow-1-hover);
 }
 
 button:active {
@@ -94,7 +104,7 @@ select,
 textarea {
   width: 100%;
   border: 1px solid var(--line-strong);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: rgba(255, 250, 239, 0.86);
   color: var(--ink);
   padding: var(--space-md) var(--space-md);
@@ -143,9 +153,9 @@ p {
 .top-nav {
   padding: var(--space-xs);
   border: 1px solid rgba(93, 64, 40, 0.16);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: rgba(244, 237, 221, 0.68);
-  box-shadow: 0 10px 30px rgba(77, 49, 25, 0.12);
+  box-shadow: var(--shadow-2);
   backdrop-filter: blur(14px) saturate(1.05);
 }
 .global-settings-trigger {
@@ -159,7 +169,7 @@ p {
   background: rgba(250, 244, 229, 0.9);
   color: var(--ink);
   padding: 0;
-  box-shadow: 0 10px 28px rgba(77, 49, 25, 0.14);
+  box-shadow: var(--shadow-2);
   backdrop-filter: blur(14px) saturate(1.05);
 }
 
@@ -186,10 +196,10 @@ p {
   max-height: calc(100vh - 56px);
   overflow: hidden;
   border: 1px solid rgba(93, 64, 40, 0.34);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--surface-raised);
   color: var(--ink);
-  box-shadow: 0 28px 80px rgba(43, 28, 16, 0.34);
+  box-shadow: var(--shadow-3);
 }
 
 .settings-dialog-header {
@@ -272,7 +282,7 @@ p {
 .settings-controls .toggle-row {
   min-height: 44px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: rgba(255, 250, 239, 0.58);
   padding: var(--space-sm) var(--space-md);
 }
@@ -286,7 +296,7 @@ p {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: rgba(255, 250, 239, 0.46);
 }
 
@@ -339,14 +349,14 @@ p {
 
 .update-progress {
   height: 6px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--paper-deep);
   overflow: hidden;
 }
 
 .update-progress-bar {
   height: 100%;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--jade);
   transition: width 0.3s ease;
 }
@@ -415,6 +425,20 @@ p {
   background: rgba(250, 244, 229, 0.88);
   color: var(--ink);
   backdrop-filter: blur(8px);
+}
+
+/* 翠玉描边次级按钮：低强调操作（恢复默认、清空、展开/收起等） */
+.btn-secondary {
+  border-color: rgba(49, 95, 77, 0.48);
+  background: transparent;
+  color: var(--jade);
+  box-shadow: none;
+}
+
+.btn-secondary:hover {
+  border-color: var(--jade);
+  background: rgba(49, 95, 77, 0.1);
+  color: var(--jade);
 }
 
 .nav-link {
@@ -693,8 +717,7 @@ p {
   margin: 0 0 var(--space-xl);
 }
 
-.hub-metric,
-.weekly-metric {
+.metric-card {
   display: grid;
   gap: var(--space-xs);
   min-height: 92px;
@@ -704,16 +727,14 @@ p {
   padding: var(--space-lg);
 }
 
-.hub-metric strong,
-.weekly-metric strong {
+.metric-card strong {
   color: var(--cinnabar);
   font-size: 28px;
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
 
-.hub-metric span,
-.weekly-metric span {
+.metric-card span {
   color: var(--muted);
   font-size: 13px;
   font-weight: 800;
@@ -736,7 +757,7 @@ p {
   width: 42px;
   height: 42px;
   border: 1px solid currentColor;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: var(--space-md);
 }
 
@@ -836,7 +857,7 @@ p {
     linear-gradient(135deg, rgba(255, 255, 255, 0.42), transparent 44%),
     rgba(244, 237, 221, 0.82);
   backdrop-filter: blur(14px) saturate(1.05);
-  box-shadow: 0 22px 70px rgba(24, 18, 12, 0.26);
+  box-shadow: var(--shadow-3);
 }
 
 .side-panel {
@@ -894,13 +915,13 @@ p {
     linear-gradient(180deg, rgba(255, 250, 239, 0.9), rgba(244, 237, 221, 0.76)),
     rgba(244, 237, 221, 0.82);
   backdrop-filter: blur(16px) saturate(1.08);
-  box-shadow: 0 28px 90px rgba(24, 18, 12, 0.3);
+  box-shadow: var(--shadow-3);
   text-align: center;
 }
 
 .timer-panel > .eyebrow {
   border: 1px solid rgba(155, 47, 37, 0.28);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: rgba(155, 47, 37, 0.07);
   padding: var(--space-xs) var(--space-md);
 }
@@ -942,7 +963,7 @@ p {
   height: 10px;
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: rgba(82, 57, 37, 0.12);
 }
 
@@ -1088,7 +1109,7 @@ button:disabled {
   gap: var(--space-sm);
   min-height: 32px;
   border: 1px solid var(--line-strong);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: rgba(255, 250, 239, 0.84);
   color: var(--ink);
   padding: var(--space-xs) var(--space-sm);
@@ -1116,7 +1137,7 @@ button:disabled {
 .type-tag-chip i {
   width: 10px;
   height: 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
 }
 
 .type-tag-chip button {
@@ -1130,10 +1151,18 @@ button:disabled {
   white-space: normal !important;
 }
 
+/* 危险操作：空心朱砂描边，与主按钮（朱砂实底）区分 */
 .danger-button {
+  border-color: var(--cinnabar);
+  background: transparent;
+  color: var(--cinnabar);
+  box-shadow: none;
+}
+
+.danger-button:hover {
   border-color: var(--cinnabar-dark);
-  background: var(--cinnabar);
-  color: #fff8eb;
+  background: rgba(155, 47, 37, 0.1);
+  color: var(--cinnabar-dark);
 }
 
 .filter-bar {
@@ -1242,6 +1271,16 @@ button:disabled {
   background: rgba(49, 95, 77, 0.045);
 }
 
+/* 斑马纹按展平后的可见行序号，详情行不参与计数 */
+.todo-row-even {
+  background: rgba(255, 250, 239, 0.5);
+}
+
+.todo-row.row-overdue {
+  box-shadow: inset 4px 0 0 var(--cinnabar);
+  background: rgba(155, 47, 37, 0.06);
+}
+
 .todo-detail-row {
   grid-column: 1 / -1;
   display: flex;
@@ -1318,7 +1357,7 @@ button:disabled {
 
 .today-plan-picker {
   border: 1px solid rgba(49, 95, 77, 0.22);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: rgba(49, 95, 77, 0.07);
   color: var(--jade);
   font-size: 12px;
@@ -1354,7 +1393,7 @@ button:disabled {
 
 .tree-toggle {
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--muted);
   cursor: pointer;
@@ -1459,7 +1498,7 @@ button:disabled {
   align-items: center;
   gap: var(--space-xs);
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: rgba(255, 250, 239, 0.76);
   color: var(--ink);
   padding: var(--space-xs) var(--space-sm);
@@ -1481,7 +1520,7 @@ button:disabled {
 .badge {
   width: fit-content;
   border: 1px solid currentColor;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   padding: var(--space-xs) var(--space-sm);
   font-size: 11px;
   font-style: normal;
@@ -1542,7 +1581,7 @@ button:disabled {
 .completed-checkin-count {
   width: fit-content;
   border: 1px solid rgba(49, 95, 77, 0.4);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: rgba(49, 95, 77, 0.08);
   color: var(--jade);
   font-size: 12px;
@@ -1557,7 +1596,7 @@ button:disabled {
 
 .done-status {
   border: 1px solid currentColor;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   font-size: 12px;
   font-style: normal;
   font-weight: 900;
@@ -1597,7 +1636,7 @@ button:disabled {
 .done-status-select {
   width: auto;
   min-width: 112px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   font-size: 12px;
   font-weight: 900;
   padding: var(--space-xs) var(--space-2xl) var(--space-xs) var(--space-md);
@@ -1624,7 +1663,7 @@ button:disabled {
   align-items: center;
   gap: var(--space-xs);
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: rgba(255, 250, 239, 0.76);
   color: var(--ink);
   font-size: 12px;
@@ -1635,7 +1674,7 @@ button:disabled {
 .type-tag-badges i {
   width: 8px;
   height: 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
 }
 
 .empty-inline {
@@ -1871,14 +1910,14 @@ button:disabled {
 }
 
 .markdown-preview code {
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   background: rgba(49, 95, 77, 0.1);
   padding: 1px var(--space-xs);
 }
 
 .markdown-preview pre {
   overflow: auto;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: #2d241b;
   color: #fff8eb;
   padding: var(--space-md);
@@ -2040,7 +2079,7 @@ button:disabled {
   height: 32px;
   place-items: center;
   border: 1px solid #a88643;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   background: #fff6d8;
   color: #a88643;
   box-shadow: 0 0 0 5px rgba(255, 246, 216, 0.3), 0 0 18px rgba(255, 225, 119, 0.84);
@@ -2183,7 +2222,7 @@ button:disabled {
   height: 132px;
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 6px 6px 3px 3px;
+  border-radius: var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-sm);
   background: rgba(49, 95, 77, 0.08);
 }
 
@@ -2229,7 +2268,7 @@ button:disabled {
 
 .weekly-parent-status {
   border: 1px solid rgba(154, 115, 51, 0.52);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   color: var(--gold);
   font-size: 12px;
   font-style: normal;
@@ -2309,7 +2348,7 @@ button:disabled {
   gap: var(--space-md);
   transform: translateX(-50%);
   border: 1px solid rgba(155, 47, 37, 0.34);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: rgba(255, 250, 239, 0.95);
   color: var(--ink);
   padding: var(--space-md) var(--space-md);
@@ -2358,7 +2397,7 @@ button:disabled {
   width: min(620px, calc(100vw - 48px));
   transform: translateX(-50%);
   border: 1px solid rgba(49, 95, 77, 0.48);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: rgba(247, 242, 229, 0.97);
   color: var(--ink);
   box-shadow: var(--shadow);
@@ -2432,7 +2471,7 @@ button:disabled {
   align-items: center;
   gap: var(--space-md);
   border: 1px solid rgba(154, 115, 51, 0.4);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: rgba(154, 115, 51, 0.08);
   margin-bottom: var(--space-lg);
   padding: var(--space-md);
@@ -2467,7 +2506,7 @@ button:disabled {
 .daily-schedule-settings .toggle-row {
   min-height: 44px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: rgba(255, 250, 239, 0.56);
   padding: var(--space-sm) var(--space-md);
 }
@@ -2549,7 +2588,7 @@ button:disabled {
   grid-template-columns: 94px minmax(0, 1fr);
   gap: var(--space-lg);
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: rgba(255, 250, 239, 0.46);
   padding: var(--space-md) var(--space-md) var(--space-md) 0;
 }
@@ -2848,7 +2887,7 @@ button:disabled {
   padding: var(--space-xs) var(--space-sm);
   border: 1px solid var(--line-strong);
   border-bottom-width: 2px;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: var(--wash);
   color: var(--ink);
   font-family: inherit;
@@ -2899,7 +2938,7 @@ button:disabled {
 .toast-action {
   flex-shrink: 0;
   border: 1px solid var(--cinnabar-dark);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--cinnabar);
   color: #fff8eb;
   padding: var(--space-xs) var(--space-lg);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Todo } from './types';
-import { getTodoTimeBadge, isCompletedLate } from './todoStatus';
+import { getTodoTimeBadge, isCompletedLate, isOverdue } from './todoStatus';
 
 const baseTodo: Todo = {
   id: 'todo-1',
@@ -75,5 +75,35 @@ describe('getTodoTimeBadge', () => {
         completedAt: '2026-07-16T19:59:59.000Z'
       })
     ).toBe(false);
+  });
+});
+
+describe('isOverdue', () => {
+  it('marks an incomplete todo overdue after its date-only due date has ended', () => {
+    expect(
+      isOverdue({ ...baseTodo, dueAt: '2026-07-15' }, new Date('2026-07-16T09:00:00.000Z'))
+    ).toBe(true);
+  });
+
+  it('does not mark an incomplete todo overdue on its due date', () => {
+    expect(
+      isOverdue({ ...baseTodo, dueAt: '2026-07-16' }, new Date(2026, 6, 16, 23, 30))
+    ).toBe(false);
+  });
+
+  it('ignores completed, archived and due-less todos', () => {
+    expect(
+      isOverdue(
+        { ...baseTodo, status: 'completed', dueAt: '2026-07-15' },
+        new Date('2026-07-16T09:00:00.000Z')
+      )
+    ).toBe(false);
+    expect(
+      isOverdue(
+        { ...baseTodo, status: 'archived', dueAt: '2026-07-15' },
+        new Date('2026-07-16T09:00:00.000Z')
+      )
+    ).toBe(false);
+    expect(isOverdue(baseTodo, new Date('2026-07-16T09:00:00.000Z'))).toBe(false);
   });
 });

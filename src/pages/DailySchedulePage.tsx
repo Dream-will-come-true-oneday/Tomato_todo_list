@@ -147,12 +147,12 @@ export default function DailySchedulePage({
             <Plus size={17} />
             新增安排
           </button>
-          <button className="ghost-button" type="button" onClick={() => setResetConfirm(true)}>
+          <button className="btn-secondary" type="button" onClick={() => setResetConfirm(true)}>
             <RotateCcw size={17} />
             恢复默认
           </button>
           <button
-            className="ghost-button"
+            className="btn-secondary"
             type="button"
             onClick={() => setClearConfirm(true)}
             disabled={settings.items.length === 0}

@@ -221,7 +221,7 @@ export default function IncompleteTodosPage({
                 </>
               ) : (
                 <button
-                  className="ghost-button icon-button"
+                  className="danger-button icon-button"
                   type="button"
                   onClick={() => setPendingDeleteTypeTagId(tag.id)}
                   title={`删除 ${tag.name}`}

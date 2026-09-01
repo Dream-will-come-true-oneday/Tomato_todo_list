@@ -128,7 +128,7 @@ function WeeklyTodoTreeItem({ node, depth = 0 }: { node: WeeklyTodoNode; depth?:
 
 function WeeklyMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="weekly-metric">
+    <div className="metric-card">
       <span>{label}</span>
       <strong>{value}</strong>
     </div>

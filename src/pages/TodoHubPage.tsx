@@ -117,7 +117,7 @@ export default function TodoHubPage({
 
 function HubMetric({ label, value }: { label: string; value: number }) {
   return (
-    <div className="hub-metric">
+    <div className="metric-card">
       <strong>{value}</strong>
       <span>{label}</span>
     </div>
