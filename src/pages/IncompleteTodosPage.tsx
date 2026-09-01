@@ -8,7 +8,7 @@ import { createDefaultTodo } from '../domain/defaultData';
 import { isIncompleteTodo, toDateKey } from '../domain/todoFilters';
 import type { Todo, TodoTerm } from '../domain/types';
 import { nullableDate } from '../lib/dateUtils';
-import { defaultTodoFilters, matchesTodoFilters, type TodoFilterState } from '../lib/todoView';
+import { defaultTodoFilters, matchesTodoFilters, matchesTodoSearch, type TodoFilterState } from '../lib/todoView';
 
 export default function IncompleteTodosPage({
   data,
@@ -45,13 +45,17 @@ export default function IncompleteTodosPage({
   const [tagName, setTagName] = useState('');
   const [tagColor, setTagColor] = useState('#9b2f25');
   const [filters, setFilters] = useState<TodoFilterState>(defaultTodoFilters);
+  const [searchQuery, setSearchQuery] = useState('');
   const [selectedTodayPlanTodoIds, setSelectedTodayPlanTodoIds] = useState<string[]>([]);
   const [pendingDeleteTypeTagId, setPendingDeleteTypeTagId] = useState<string | null>(null);
   const [blockedDeleteTypeTagId, setBlockedDeleteTypeTagId] = useState<string | null>(null);
   const [completionTagDialogTodo, setCompletionTagDialogTodo] = useState<Todo | null>(null);
   const [checkInTagDialogTodo, setCheckInTagDialogTodo] = useState<Todo | null>(null);
   const todayPlanTodoIdSet = new Set(todayPlanTodos.map((todo) => todo.id));
-  const incompleteTodos = data.todos.filter(isIncompleteTodo).filter((todo) => matchesTodoFilters(todo, filters));
+  const incompleteTodos = data.todos
+    .filter(isIncompleteTodo)
+    .filter((todo) => matchesTodoFilters(todo, filters))
+    .filter((todo) => matchesTodoSearch(todo, searchQuery));
   const visibleTodayPlanCandidates = incompleteTodos.filter((todo) => !todayPlanTodoIdSet.has(todo.id));
   const selectedEligibleTodoIds = selectedTodayPlanTodoIds.filter((todoId) =>
     visibleTodayPlanCandidates.some((todo) => todo.id === todoId)
@@ -134,6 +138,15 @@ export default function IncompleteTodosPage({
   return (
     <section className="page-panel table-page">
       <PageTitle eyebrow="未竟" title="未完成待办" />
+      <div className="toolbar search-toolbar">
+        <input
+          aria-label="搜索待办"
+          type="search"
+          placeholder="搜索标题或备注…"
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+        />
+      </div>
       <div className="toolbar">
         <input
           aria-label="新增待办标题"

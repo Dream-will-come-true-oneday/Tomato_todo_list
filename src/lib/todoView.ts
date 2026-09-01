@@ -48,6 +48,14 @@ export function matchesTodoFilters(todo: Todo, filters: TodoFilterState) {
   return true;
 }
 
+/** 标题/备注模糊搜索：按空白拆词，全部词命中（不区分大小写）才算匹配；空查询匹配全部。 */
+export function matchesTodoSearch(todo: Todo, query: string) {
+  const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return true;
+  const haystack = `${todo.title}\n${todo.notes}`.toLowerCase();
+  return tokens.every((token) => haystack.includes(token));
+}
+
 export function getTodoTypeTags(todo: Todo, typeTags: TypeTagView[]) {
   return typeTags.filter((tag) => todo.typeTagIds.includes(tag.id));
 }
