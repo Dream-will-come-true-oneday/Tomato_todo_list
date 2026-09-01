@@ -1,7 +1,6 @@
 import { CalendarDays, Plus, Trash2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PageTitle } from '../components/PageTitle';
-import { CompletionTagDialog } from '../components/todo/CompletionTagDialog';
 import { TodoFilterBar } from '../components/todo/TodoFilterBar';
 import { TodoTable } from '../components/todo/TodoTable';
 import { createDefaultTodo } from '../domain/defaultData';
@@ -22,6 +21,7 @@ export default function IncompleteTodosPage({
   onDeleteTypeTag,
   focusTodoId,
   onFocusHandled,
+  focusNewTodoSignal,
   onToast
 }: {
   data: {
@@ -38,6 +38,7 @@ export default function IncompleteTodosPage({
   onDeleteTypeTag: (tagId: string) => void;
   focusTodoId: string | null;
   onFocusHandled: () => void;
+  focusNewTodoSignal: number;
   onToast: (message: string) => void;
 }) {
   const [title, setTitle] = useState('');
@@ -49,13 +50,13 @@ export default function IncompleteTodosPage({
   const [filters, setFilters] = useState<TodoFilterState>(defaultTodoFilters);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTodayPlanTodoIds, setSelectedTodayPlanTodoIds] = useState<string[]>([]);
-  const [pendingDeleteTypeTagId, setPendingDeleteTypeTagId] = useState<string | null>(null);
   const [blockedDeleteTypeTagId, setBlockedDeleteTypeTagId] = useState<string | null>(null);
-  const [completionTagDialogTodo, setCompletionTagDialogTodo] = useState<Todo | null>(null);
-  const [checkInTagDialogTodo, setCheckInTagDialogTodo] = useState<Todo | null>(null);
-  // 页内对话框“前往添加标签”与跨页跳转共用聚焦机制；详情行据此在渲染期展开，保证标签输入存在
+  // 无标签完成/打卡被拦截时改为行内引导：记录目标行与提示文案，替代原 CompletionTagDialog 弹窗
+  const [tagGuide, setTagGuide] = useState<{ todoId: string; message: string } | null>(null);
+  // 页内“前往添加标签”与跨页跳转共用聚焦机制；详情行据此在渲染期展开，保证标签输入存在
   const [tagFocusTodoId, setTagFocusTodoId] = useState<string | null>(null);
   const effectiveFocusTodoId = focusTodoId ?? tagFocusTodoId;
+  const newTodoTitleRef = useRef<HTMLInputElement | null>(null);
   const todayPlanTodoIdSet = new Set(todayPlanTodos.map((todo) => todo.id));
   const incompleteTodos = data.todos
     .filter(isIncompleteTodo)
@@ -77,6 +78,10 @@ export default function IncompleteTodosPage({
     onFocusHandled();
     setTagFocusTodoId(null);
   }, [effectiveFocusTodoId, onFocusHandled]);
+
+  useEffect(() => {
+    if (focusNewTodoSignal > 0) newTodoTitleRef.current?.focus();
+  }, [focusNewTodoSignal]);
 
   function addTodo() {
     const trimmed = title.trim();
@@ -102,14 +107,21 @@ export default function IncompleteTodosPage({
     );
     if (wouldLeaveAchievementTodoUntagged) {
       setBlockedDeleteTypeTagId(tagId);
-      setPendingDeleteTypeTagId(null);
       return;
     }
     onDeleteTypeTag(tagId);
-    setPendingDeleteTypeTagId(null);
     if (filters.typeTagId === tagId) {
       setFilters({ ...filters, typeTagId: 'all' });
     }
+  }
+
+  function requestTagFix(todo: Todo, action: '完成' | '打卡') {
+    if (!incompleteTodos.some((candidate) => candidate.id === todo.id)) {
+      onToast(`待办「${todo.title}」不在当前列表中，请调整筛选或搜索后再补标签`);
+      return;
+    }
+    setTagGuide({ todoId: todo.id, message: `${action}前请先选择类型标签` });
+    setTagFocusTodoId(todo.id);
   }
 
   function toggleTodayPlanSelection(todoId: string, checked: boolean) {
@@ -136,7 +148,7 @@ export default function IncompleteTodosPage({
   function toggleTodoCheckIn(todo: Todo) {
     const hasValidTag = todo.typeTagIds.some((tagId) => data.typeTags.some((tag) => tag.id === tagId));
     if (!hasValidTag) {
-      setCheckInTagDialogTodo(todo);
+      requestTagFix(todo, '打卡');
       return;
     }
     onToggleTodoCheckIn(todo.id);
@@ -156,6 +168,7 @@ export default function IncompleteTodosPage({
       </div>
       <div className="toolbar">
         <input
+          ref={newTodoTitleRef}
           aria-label="新增待办标题"
           placeholder="新增待办"
           value={title}
@@ -193,11 +206,10 @@ export default function IncompleteTodosPage({
         {data.typeTags.length === 0 && <em>暂无自定义标签</em>}
         {data.typeTags.map((tag) => {
           const usageCount = data.todos.filter((todo) => todo.typeTagIds.includes(tag.id)).length;
-          const isConfirmingDelete = pendingDeleteTypeTagId === tag.id;
           const isDeleteBlocked = blockedDeleteTypeTagId === tag.id;
 
           return (
-            <div key={tag.id} className={isConfirmingDelete ? 'type-tag-chip confirming' : 'type-tag-chip'} style={{ borderColor: tag.color }}>
+            <div key={tag.id} className="type-tag-chip" style={{ borderColor: tag.color }}>
               <span className="type-tag-chip-name">
                 <i style={{ backgroundColor: tag.color }} />
                 {tag.name}
@@ -210,22 +222,13 @@ export default function IncompleteTodosPage({
                     知道了
                   </button>
                 </>
-              ) : isConfirmingDelete ? (
-                <>
-                  <button className="danger-button" type="button" onClick={() => deleteTypeTag(tag.id)}>
-                    确认删除
-                  </button>
-                  <button className="ghost-button" type="button" onClick={() => setPendingDeleteTypeTagId(null)}>
-                    取消
-                  </button>
-                </>
               ) : (
                 <button
                   className="danger-button icon-button"
                   type="button"
-                  onClick={() => setPendingDeleteTypeTagId(tag.id)}
+                  onClick={() => deleteTypeTag(tag.id)}
                   title={`删除 ${tag.name}`}
-                  aria-label={`准备删除标签 ${tag.name}`}
+                  aria-label={`删除标签 ${tag.name}`}
                 >
                   <Trash2 size={14} />
                 </button>
@@ -262,6 +265,8 @@ export default function IncompleteTodosPage({
         typeTags={data.typeTags}
         showCheckIn={false}
         focusTodoId={effectiveFocusTodoId}
+        guideTodoId={tagGuide?.todoId ?? null}
+        guideMessage={tagGuide?.message ?? null}
         todayPlanTodoIdSet={todayPlanTodoIdSet}
         selectedTodayPlanTodoIds={selectedTodayPlanTodoIds}
         onToggleTodayPlanSelection={toggleTodayPlanSelection}
@@ -269,7 +274,7 @@ export default function IncompleteTodosPage({
         onDeleteTodo={onDeleteTodo}
         onUpdateTodo={onUpdateTodo}
         onToggleTodoCheckIn={toggleTodoCheckIn}
-        onCompletionBlocked={setCompletionTagDialogTodo}
+        onCompletionBlocked={(todo) => requestTagFix(todo, '完成')}
       />
       <TodoTable
         title="长期待办"
@@ -277,6 +282,8 @@ export default function IncompleteTodosPage({
         typeTags={data.typeTags}
         showCheckIn={true}
         focusTodoId={effectiveFocusTodoId}
+        guideTodoId={tagGuide?.todoId ?? null}
+        guideMessage={tagGuide?.message ?? null}
         todayPlanTodoIdSet={todayPlanTodoIdSet}
         selectedTodayPlanTodoIds={selectedTodayPlanTodoIds}
         onToggleTodayPlanSelection={toggleTodayPlanSelection}
@@ -284,30 +291,8 @@ export default function IncompleteTodosPage({
         onDeleteTodo={onDeleteTodo}
         onUpdateTodo={onUpdateTodo}
         onToggleTodoCheckIn={toggleTodoCheckIn}
-        onCompletionBlocked={setCompletionTagDialogTodo}
+        onCompletionBlocked={(todo) => requestTagFix(todo, '完成')}
       />
-      {completionTagDialogTodo && (
-        <CompletionTagDialog
-          action="完成"
-          todoTitle={completionTagDialogTodo.title}
-          onClose={() => setCompletionTagDialogTodo(null)}
-          onConfirm={() => {
-            setTagFocusTodoId(completionTagDialogTodo.id);
-            setCompletionTagDialogTodo(null);
-          }}
-        />
-      )}
-      {checkInTagDialogTodo && (
-        <CompletionTagDialog
-          action="打卡"
-          todoTitle={checkInTagDialogTodo.title}
-          onClose={() => setCheckInTagDialogTodo(null)}
-          onConfirm={() => {
-            setTagFocusTodoId(checkInTagDialogTodo.id);
-            setCheckInTagDialogTodo(null);
-          }}
-        />
-      )}
     </section>
   );
 }

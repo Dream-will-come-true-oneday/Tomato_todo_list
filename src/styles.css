@@ -1115,12 +1115,6 @@ button:disabled {
   padding: var(--space-xs) var(--space-sm);
 }
 
-.type-tag-chip.confirming {
-  border-color: rgba(155, 47, 37, 0.46);
-  border-radius: var(--radius);
-  background: rgba(155, 47, 37, 0.08);
-}
-
 .type-tag-chip-name {
   display: inline-flex;
   align-items: center;
@@ -1289,6 +1283,19 @@ button:disabled {
   gap: var(--space-lg);
   border-top: 1px dashed var(--line);
   padding-top: var(--space-sm);
+}
+
+/* 无标签完成/打卡的行内引导条（替代弹窗） */
+.detail-guide {
+  width: 100%;
+  margin: 0;
+  border: 1px solid rgba(154, 115, 51, 0.4);
+  border-radius: var(--radius-sm);
+  background: rgba(154, 115, 51, 0.08);
+  color: var(--cinnabar-dark);
+  font-size: 13px;
+  font-weight: 700;
+  padding: var(--space-xs) var(--space-sm);
 }
 
 .detail-group {
@@ -2669,22 +2676,6 @@ button:disabled {
   background: rgba(155, 47, 37, 0.06);
   color: var(--cinnabar);
   box-shadow: none;
-}
-
-.daily-item-delete-confirmation {
-  grid-column: 2;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-sm);
-  border-top: 1px dashed rgba(155, 47, 37, 0.3);
-  color: var(--cinnabar-dark);
-  font-size: 13px;
-  padding-top: var(--space-md);
-}
-
-.daily-item-delete-confirmation span {
-  margin-right: auto;
 }
 
 .data-import-confirmation {

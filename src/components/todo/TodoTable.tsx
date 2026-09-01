@@ -20,7 +20,9 @@ export function TodoTable({
   onDeleteTodo,
   onCompletionBlocked,
   showCheckIn,
-  focusTodoId
+  focusTodoId,
+  guideTodoId = null,
+  guideMessage = null
 }: {
   title: string;
   todos: Todo[];
@@ -35,6 +37,8 @@ export function TodoTable({
   onCompletionBlocked: (todo: Todo) => void;
   showCheckIn: boolean;
   focusTodoId: string | null;
+  guideTodoId?: string | null;
+  guideMessage?: string | null;
 }) {
   const [expandedTodoIds, setExpandedTodoIds] = useState<Set<string>>(() => new Set(todos.map((todo) => todo.id)));
   const [detailTodoIds, setDetailTodoIds] = useState<Set<string>>(() => new Set());
@@ -144,6 +148,8 @@ export function TodoTable({
             onToggleChildren={toggleTodoChildren}
             isDetailExpanded={detailTodoIds.has(todo.id)}
             onToggleDetail={toggleTodoDetail}
+            showGuide={guideTodoId === todo.id && guideMessage !== null}
+            guideMessage={guideMessage}
           />
         ))}
         {todos.length === 0 && <p className="empty-state table-empty">暂无待办。</p>}
@@ -170,7 +176,9 @@ function TodoRow({
   isExpanded,
   onToggleChildren,
   isDetailExpanded,
-  onToggleDetail
+  onToggleDetail,
+  showGuide = false,
+  guideMessage = null
 }: {
   todo: Todo;
   depth?: number;
@@ -190,8 +198,13 @@ function TodoRow({
   onToggleChildren: (todoId: string) => void;
   isDetailExpanded: boolean;
   onToggleDetail: (todoId: string) => void;
+  showGuide?: boolean;
+  guideMessage?: string | null;
 }) {
   const badge = getTodoTimeBadge(todo);
+  // 引导条只在待办仍缺有效标签时显示：补上标签后自动消失，无需手动清理
+  const hasValidTypeTag = todo.typeTagIds.some((tagId) => typeTags.some((tag) => tag.id === tagId));
+  const guideVisible = showGuide && !hasValidTypeTag;
 
   function toggleUrgency(tag: UrgencyTag) {
     const hasTag = todo.urgencyTags.includes(tag);
@@ -302,6 +315,11 @@ function TodoRow({
       </div>
       {isDetailExpanded && (
         <div className="todo-detail-row">
+          {guideVisible && (
+            <p className="detail-guide" role="status">
+              {guideMessage}
+            </p>
+          )}
           <div className="detail-group">
             <span className="detail-label">紧急 / 重要</span>
             <div className="mini-checks">

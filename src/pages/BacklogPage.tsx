@@ -29,7 +29,6 @@ export default function BacklogPage({
   const [tagName, setTagName] = useState('');
   const [tagColor, setTagColor] = useState('#315f4d');
   const [fountainAnimation, setFountainAnimation] = useState<'envelope' | 'glow' | null>(null);
-  const [pendingDeleteTagId, setPendingDeleteTagId] = useState<string | null>(null);
   const [blockedDeleteTagId, setBlockedDeleteTagId] = useState<string | null>(null);
   const [completionBlockedItem, setCompletionBlockedItem] = useState<BacklogItem | null>(null);
   const [tagFocusItemId, setTagFocusItemId] = useState<string | null>(null);
@@ -82,11 +81,9 @@ export default function BacklogPage({
   function deleteTag(tagId: string) {
     if (items.some((item) => item.tagId === tagId)) {
       setBlockedDeleteTagId(tagId);
-      setPendingDeleteTagId(null);
       return;
     }
     onDeleteTag(tagId);
-    setPendingDeleteTagId(null);
   }
 
   function completeItem(item: BacklogItem) {
@@ -137,10 +134,9 @@ export default function BacklogPage({
         {tags.length === 0 && <em>暂无标签，可先记录后分类。</em>}
         {tags.map((tag) => {
           const usageCount = items.filter((item) => item.tagId === tag.id).length;
-          const isConfirming = pendingDeleteTagId === tag.id;
           const isBlocked = blockedDeleteTagId === tag.id;
           return (
-            <div key={tag.id} className={isConfirming ? 'type-tag-chip confirming' : 'type-tag-chip'} style={{ borderColor: tag.color }}>
+            <div key={tag.id} className="type-tag-chip" style={{ borderColor: tag.color }}>
               <span className="type-tag-chip-name"><i style={{ backgroundColor: tag.color }} />{tag.name}</span>
               <small>{usageCount} 项</small>
               {isBlocked ? (
@@ -148,13 +144,8 @@ export default function BacklogPage({
                   <small className="type-tag-delete-blocked">仍有灵感使用此标签，无法删除。</small>
                   <button className="ghost-button" type="button" onClick={() => setBlockedDeleteTagId(null)}>知道了</button>
                 </>
-              ) : isConfirming ? (
-                <>
-                  <button className="danger-button" type="button" onClick={() => deleteTag(tag.id)}>确认删除</button>
-                  <button className="ghost-button" type="button" onClick={() => setPendingDeleteTagId(null)}>取消</button>
-                </>
               ) : (
-                <button className="danger-button icon-button" type="button" onClick={() => setPendingDeleteTagId(tag.id)} aria-label={`准备删除灵感标签 ${tag.name}`} title={`删除 ${tag.name}`}>
+                <button className="danger-button icon-button" type="button" onClick={() => deleteTag(tag.id)} aria-label={`删除灵感标签 ${tag.name}`} title={`删除 ${tag.name}`}>
                   <Trash2 size={14} />
                 </button>
               )}

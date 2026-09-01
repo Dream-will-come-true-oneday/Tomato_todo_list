@@ -2,6 +2,7 @@ import { Pause, Play, RotateCcw, SkipForward } from 'lucide-react';
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { getNextPhase, getPhaseDurationSeconds } from '../domain/pomodoro';
 import { playReminderSound, prepareReminderSound } from '../domain/reminderSound';
+import { isEditableTarget } from '../lib/keyboard';
 import type { PomodoroCompletionType, TimerPhase, TimerPreset, Todo } from '../domain/types';
 
 export type PhaseCompletion = {
@@ -283,16 +284,6 @@ const TimerPanel = forwardRef<TimerPanelHandle, Props>(function TimerPanel({ pre
   });
 
   useEffect(() => {
-    const isEditableTarget = (target: EventTarget | null) => {
-      if (!(target instanceof HTMLElement)) return false;
-      return (
-        target.tagName === 'INPUT' ||
-        target.tagName === 'TEXTAREA' ||
-        target.tagName === 'SELECT' ||
-        target.isContentEditable
-      );
-    };
-
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing) return;
       // Avoid clashing with browser shortcuts such as Ctrl+R / Ctrl+S and

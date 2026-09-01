@@ -32,6 +32,7 @@ import type {
 } from './domain/types';
 import { buildTodayPlanTodos } from './domain/todayPlan';
 import { currentIso } from './lib/dateUtils';
+import { isEditableTarget } from './lib/keyboard';
 import type { Page } from './lib/navigation';
 import HomePage from './pages/HomePage';
 import TodoHubPage from './pages/TodoHubPage';
@@ -63,6 +64,7 @@ export default function App() {
   const [undoState, dispatchUndoable] = useReducer(undoableAppReducer, initialLoad.data, initUndoableState);
   const data = undoState.data;
   const [page, setPage] = useState<Page>('home');
+  const [newTodoFocusSignal, setNewTodoFocusSignal] = useState(0);
   const [recovered, setRecovered] = useState(initialLoad.recovered);
   const [selectedPomodoroTodoId, setSelectedPomodoroTodoId] = useState<string | null>(null);
   const [todoTagFocusId, setTodoTagFocusId] = useState<string | null>(null);
@@ -127,6 +129,8 @@ export default function App() {
   performUndoRef.current = performUndo;
   const performRedoRef = useRef(performRedo);
   performRedoRef.current = performRedo;
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
 
   useEffect(() => {
     const top = undoState.undoStack[0];
@@ -139,36 +143,56 @@ export default function App() {
   }, [undoState.undoStack]);
 
   useEffect(() => {
-    function handleUndoShortcut(event: KeyboardEvent) {
-      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
-      const key = event.key.toLowerCase();
-      if (key !== 'z' && key !== 'y') return;
-      const target = event.target;
-      if (target instanceof HTMLElement) {
-        const tagName = target.tagName;
-        if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT' || target.isContentEditable) return;
+    // 数字键 1-4 切换 TopNav 前四页；N 跳转未完成页并聚焦新增输入
+    const SHORTCUT_PAGES: Page[] = ['home', 'pomodoro', 'dailySchedule', 'todoHub'];
+    function handleGlobalShortcut(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && !event.altKey) {
+        const key = event.key.toLowerCase();
+        if (key !== 'z' && key !== 'y') return;
+        if (isEditableTarget(event.target)) return;
+        if (settingsOpenRef.current) return;
+        // 对话框与内联确认条挂起期间 Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y 不应触发撤销或重做
+        if (
+          document.querySelector(
+            '[role="dialog"][aria-modal="true"], [role="alertdialog"], .inline-confirmation'
+          )
+        ) {
+          return;
+        }
+        event.preventDefault();
+        // Ctrl+Y 或 Ctrl+Shift+Z 走重做；Ctrl+Z 保持撤销
+        if (key === 'y' || event.shiftKey) {
+          performRedoRef.current();
+          return;
+        }
+        performUndoRef.current();
+        return;
       }
+
+      if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+      if (isEditableTarget(event.target)) return;
       if (settingsOpenRef.current) return;
-      // 对话框守卫追加两类每日安排内联确认条（role="alert" 不在对话框选择器内），
-      // 确认挂起期间 Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y 不应触发撤销或重做
       if (
         document.querySelector(
-          '[role="dialog"][aria-modal="true"], [role="alertdialog"], .inline-confirmation, .daily-item-delete-confirmation'
+          '[role="dialog"][aria-modal="true"], [role="alertdialog"], .inline-confirmation'
         )
       ) {
         return;
       }
-      event.preventDefault();
-      // Ctrl+Y 或 Ctrl+Shift+Z 走重做；Ctrl+Z 保持撤销
-      if (key === 'y' || event.shiftKey) {
-        performRedoRef.current();
+      if (event.key === 'n' || event.key === 'N') {
+        event.preventDefault();
+        navigateRef.current('incomplete');
+        setNewTodoFocusSignal((current) => current + 1);
         return;
       }
-      performUndoRef.current();
+      const shortcutPageIndex = SHORTCUT_PAGES.findIndex((_, index) => event.key === String(index + 1));
+      if (shortcutPageIndex === -1) return;
+      event.preventDefault();
+      navigateRef.current(SHORTCUT_PAGES[shortcutPageIndex]);
     }
 
-    document.addEventListener('keydown', handleUndoShortcut);
-    return () => document.removeEventListener('keydown', handleUndoShortcut);
+    document.addEventListener('keydown', handleGlobalShortcut);
+    return () => document.removeEventListener('keydown', handleGlobalShortcut);
   }, []);
 
   useEffect(() => {
@@ -379,6 +403,7 @@ export default function App() {
           onToggleTodoCheckIn={(todoId) => dispatchData({ type: 'toggleTodoCheckIn', todoId, date: today })}
           focusTodoId={todoTagFocusId}
           onFocusHandled={() => setTodoTagFocusId(null)}
+          focusNewTodoSignal={newTodoFocusSignal}
           onToast={showToast}
         />
       )}
