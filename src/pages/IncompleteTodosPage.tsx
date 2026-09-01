@@ -21,7 +21,8 @@ export default function IncompleteTodosPage({
   onAddTypeTag,
   onDeleteTypeTag,
   focusTodoId,
-  onFocusHandled
+  onFocusHandled,
+  onToast
 }: {
   data: {
     todos: Todo[];
@@ -37,6 +38,7 @@ export default function IncompleteTodosPage({
   onDeleteTypeTag: (tagId: string) => void;
   focusTodoId: string | null;
   onFocusHandled: () => void;
+  onToast: (message: string) => void;
 }) {
   const [title, setTitle] = useState('');
   const [term, setTerm] = useState<TodoTerm>('short');
@@ -51,6 +53,9 @@ export default function IncompleteTodosPage({
   const [blockedDeleteTypeTagId, setBlockedDeleteTypeTagId] = useState<string | null>(null);
   const [completionTagDialogTodo, setCompletionTagDialogTodo] = useState<Todo | null>(null);
   const [checkInTagDialogTodo, setCheckInTagDialogTodo] = useState<Todo | null>(null);
+  // 页内对话框“前往添加标签”与跨页跳转共用聚焦机制；详情行据此在渲染期展开，保证标签输入存在
+  const [tagFocusTodoId, setTagFocusTodoId] = useState<string | null>(null);
+  const effectiveFocusTodoId = focusTodoId ?? tagFocusTodoId;
   const todayPlanTodoIdSet = new Set(todayPlanTodos.map((todo) => todo.id));
   const incompleteTodos = data.todos
     .filter(isIncompleteTodo)
@@ -64,13 +69,14 @@ export default function IncompleteTodosPage({
     visibleTodayPlanCandidates.length > 0 && visibleTodayPlanCandidates.every((todo) => selectedTodayPlanTodoIds.includes(todo.id));
 
   useEffect(() => {
-    if (!focusTodoId) return;
-    const tags = document.getElementById(`todo-type-tags-${focusTodoId}`);
+    if (!effectiveFocusTodoId) return;
+    const tags = document.getElementById(`todo-type-tags-${effectiveFocusTodoId}`);
     tags?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
     const firstTagInput = tags?.querySelector<HTMLInputElement>('input:not(:disabled)');
     firstTagInput?.focus();
     onFocusHandled();
-  }, [focusTodoId, onFocusHandled]);
+    setTagFocusTodoId(null);
+  }, [effectiveFocusTodoId, onFocusHandled]);
 
   function addTodo() {
     const trimmed = title.trim();
@@ -123,6 +129,7 @@ export default function IncompleteTodosPage({
   function addSelectedToTodayPlan() {
     if (selectedEligibleTodoIds.length === 0) return;
     onAddTodayPlanTodos(selectedEligibleTodoIds);
+    onToast(`已将 ${selectedEligibleTodoIds.length} 项待办加入今日安排`);
     setSelectedTodayPlanTodoIds((current) => current.filter((todoId) => !selectedEligibleTodoIds.includes(todoId)));
   }
 
@@ -252,8 +259,9 @@ export default function IncompleteTodosPage({
       <TodoTable
         title="短期待办"
         todos={incompleteTodos.filter((todo) => todo.term === 'short')}
-        allTodos={data.todos}
         typeTags={data.typeTags}
+        showCheckIn={false}
+        focusTodoId={effectiveFocusTodoId}
         todayPlanTodoIdSet={todayPlanTodoIdSet}
         selectedTodayPlanTodoIds={selectedTodayPlanTodoIds}
         onToggleTodayPlanSelection={toggleTodayPlanSelection}
@@ -266,8 +274,9 @@ export default function IncompleteTodosPage({
       <TodoTable
         title="长期待办"
         todos={incompleteTodos.filter((todo) => todo.term === 'long')}
-        allTodos={data.todos}
         typeTags={data.typeTags}
+        showCheckIn={true}
+        focusTodoId={effectiveFocusTodoId}
         todayPlanTodoIdSet={todayPlanTodoIdSet}
         selectedTodayPlanTodoIds={selectedTodayPlanTodoIds}
         onToggleTodayPlanSelection={toggleTodayPlanSelection}
@@ -283,9 +292,7 @@ export default function IncompleteTodosPage({
           todoTitle={completionTagDialogTodo.title}
           onClose={() => setCompletionTagDialogTodo(null)}
           onConfirm={() => {
-            const tags = document.getElementById(`todo-type-tags-${completionTagDialogTodo.id}`);
-            tags?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
-            tags?.querySelector<HTMLInputElement>('input:not(:disabled)')?.focus();
+            setTagFocusTodoId(completionTagDialogTodo.id);
             setCompletionTagDialogTodo(null);
           }}
         />
@@ -296,9 +303,7 @@ export default function IncompleteTodosPage({
           todoTitle={checkInTagDialogTodo.title}
           onClose={() => setCheckInTagDialogTodo(null)}
           onConfirm={() => {
-            const tags = document.getElementById(`todo-type-tags-${checkInTagDialogTodo.id}`);
-            tags?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
-            tags?.querySelector<HTMLInputElement>('input:not(:disabled)')?.focus();
+            setTagFocusTodoId(checkInTagDialogTodo.id);
             setCheckInTagDialogTodo(null);
           }}
         />

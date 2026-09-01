@@ -45,6 +45,7 @@ describe('App workflows', () => {
     fireEvent.click(screen.getByRole('button', { name: /^新增$/ }));
 
     expect(screen.getByDisplayValue('复盘产品体验')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '展开 复盘产品体验 的详情' }));
     fireEvent.click(screen.getByLabelText('复盘产品体验 类型标签 读书'));
 
     fireEvent.change(screen.getByLabelText('复盘产品体验 状态'), {

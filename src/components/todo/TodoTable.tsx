@@ -1,4 +1,4 @@
-import { CalendarCheck2, ChevronRight, Plus, Trash2 } from 'lucide-react';
+import { CalendarCheck2, ChevronDown, ChevronRight, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { createDefaultTodo } from '../../domain/defaultData';
 import { toDateKey } from '../../domain/todoFilters';
@@ -10,7 +10,6 @@ import { statusLabels, urgencyLabels } from '../../lib/todoView';
 export function TodoTable({
   title,
   todos,
-  allTodos,
   typeTags,
   todayPlanTodoIdSet,
   selectedTodayPlanTodoIds,
@@ -19,11 +18,12 @@ export function TodoTable({
   onUpdateTodo,
   onToggleTodoCheckIn,
   onDeleteTodo,
-  onCompletionBlocked
+  onCompletionBlocked,
+  showCheckIn,
+  focusTodoId
 }: {
   title: string;
   todos: Todo[];
-  allTodos: Todo[];
   typeTags: { id: string; name: string; color: string }[];
   todayPlanTodoIdSet: Set<string>;
   selectedTodayPlanTodoIds: string[];
@@ -33,8 +33,11 @@ export function TodoTable({
   onToggleTodoCheckIn: (todo: Todo) => void;
   onDeleteTodo: (todoId: string) => void;
   onCompletionBlocked: (todo: Todo) => void;
+  showCheckIn: boolean;
+  focusTodoId: string | null;
 }) {
   const [expandedTodoIds, setExpandedTodoIds] = useState<Set<string>>(() => new Set(todos.map((todo) => todo.id)));
+  const [detailTodoIds, setDetailTodoIds] = useState<Set<string>>(() => new Set());
   const visibleTodoIds = new Set(todos.map((todo) => todo.id));
   const roots = todos.filter((todo) => !todo.parentId || !visibleTodoIds.has(todo.parentId));
   const childrenByParent = new Map<string, Todo[]>();
@@ -44,8 +47,27 @@ export function TodoTable({
   const sortedRoots = [...roots].sort(compareTodosBySchedule);
   const parentTodoIds = [...childrenByParent.keys()];
 
+  // 标签聚焦流（从未完成页其他入口跳来补标签）要求详情行与聚焦渲染在同一帧展开，
+  // 故在渲染期同步调整状态；否则父级 effect 查询标签输入时详情行尚未挂载
+  const [prevFocusTodoId, setPrevFocusTodoId] = useState<string | null>(null);
+  if (focusTodoId !== prevFocusTodoId) {
+    setPrevFocusTodoId(focusTodoId);
+    if (focusTodoId && todos.some((todo) => todo.id === focusTodoId)) {
+      setDetailTodoIds((current) => new Set(current).add(focusTodoId));
+    }
+  }
+
   function toggleTodoChildren(todoId: string) {
     setExpandedTodoIds((current) => {
+      const next = new Set(current);
+      if (next.has(todoId)) next.delete(todoId);
+      else next.add(todoId);
+      return next;
+    });
+  }
+
+  function toggleTodoDetail(todoId: string) {
+    setDetailTodoIds((current) => {
       const next = new Set(current);
       if (next.has(todoId)) next.delete(todoId);
       else next.add(todoId);
@@ -81,14 +103,12 @@ export function TodoTable({
         )}
       </div>
       <div className="todo-table" role="table" aria-label={title}>
-        <div className="todo-row table-head" role="row">
+        <div className={showCheckIn ? 'todo-row table-head has-checkin' : 'todo-row table-head'} role="row">
           <span>事项</span>
           <span>日期</span>
           <span>状态</span>
           <span>期限</span>
-          <span>打卡</span>
-          <span>紧急 / 重要</span>
-          <span>类型标签</span>
+          {showCheckIn && <span>打卡</span>}
           <span>操作</span>
         </div>
         {sortedRoots.map((todo) => (
@@ -97,6 +117,7 @@ export function TodoTable({
             todo={todo}
             childrenByParent={childrenByParent}
             typeTags={typeTags}
+            showCheckIn={showCheckIn}
             todayPlanTodoIdSet={todayPlanTodoIdSet}
             selectedTodayPlanTodoIds={selectedTodayPlanTodoIds}
             onToggleTodayPlanSelection={onToggleTodayPlanSelection}
@@ -106,7 +127,9 @@ export function TodoTable({
             onToggleTodoCheckIn={onToggleTodoCheckIn}
             onCompletionBlocked={onCompletionBlocked}
             expandedTodoIds={expandedTodoIds}
+            detailTodoIds={detailTodoIds}
             onToggleTodoChildren={toggleTodoChildren}
+            onToggleTodoDetail={toggleTodoDetail}
           />
         ))}
         {todos.length === 0 && <p className="empty-state table-empty">暂无待办。</p>}
@@ -119,6 +142,7 @@ function TodoRows({
   todo,
   childrenByParent,
   typeTags,
+  showCheckIn,
   todayPlanTodoIdSet,
   selectedTodayPlanTodoIds,
   onToggleTodayPlanSelection,
@@ -128,12 +152,15 @@ function TodoRows({
   onDeleteTodo,
   onCompletionBlocked,
   expandedTodoIds,
+  detailTodoIds,
   onToggleTodoChildren,
+  onToggleTodoDetail,
   depth = 0
 }: {
   todo: Todo;
   childrenByParent: Map<string, Todo[]>;
   typeTags: { id: string; name: string; color: string }[];
+  showCheckIn: boolean;
   todayPlanTodoIdSet: Set<string>;
   selectedTodayPlanTodoIds: string[];
   onToggleTodayPlanSelection: (todoId: string, checked: boolean) => void;
@@ -143,7 +170,9 @@ function TodoRows({
   onDeleteTodo: (todoId: string) => void;
   onCompletionBlocked: (todo: Todo) => void;
   expandedTodoIds: Set<string>;
+  detailTodoIds: Set<string>;
   onToggleTodoChildren: (todoId: string) => void;
+  onToggleTodoDetail: (todoId: string) => void;
   depth?: number;
 }) {
   const children = [...(childrenByParent.get(todo.id) ?? [])].sort(compareTodosBySchedule);
@@ -156,6 +185,7 @@ function TodoRows({
         todo={todo}
         depth={depth}
         typeTags={typeTags}
+        showCheckIn={showCheckIn}
         isInTodayPlan={todayPlanTodoIdSet.has(todo.id)}
         isSelectedForTodayPlan={selectedTodayPlanTodoIds.includes(todo.id)}
         onToggleTodayPlanSelection={onToggleTodayPlanSelection}
@@ -167,6 +197,8 @@ function TodoRows({
         hasChildren={hasChildren}
         isExpanded={isExpanded}
         onToggleChildren={onToggleTodoChildren}
+        isDetailExpanded={detailTodoIds.has(todo.id)}
+        onToggleDetail={onToggleTodoDetail}
       />
       {hasChildren && isExpanded && children.map((child) => (
         <TodoRows
@@ -175,6 +207,7 @@ function TodoRows({
           childrenByParent={childrenByParent}
           depth={depth + 1}
           typeTags={typeTags}
+          showCheckIn={showCheckIn}
           todayPlanTodoIdSet={todayPlanTodoIdSet}
           selectedTodayPlanTodoIds={selectedTodayPlanTodoIds}
           onToggleTodayPlanSelection={onToggleTodayPlanSelection}
@@ -184,7 +217,9 @@ function TodoRows({
           onToggleTodoCheckIn={onToggleTodoCheckIn}
           onCompletionBlocked={onCompletionBlocked}
           expandedTodoIds={expandedTodoIds}
+          detailTodoIds={detailTodoIds}
           onToggleTodoChildren={onToggleTodoChildren}
+          onToggleTodoDetail={onToggleTodoDetail}
         />
       ))}
     </>
@@ -195,6 +230,7 @@ function TodoRow({
   todo,
   depth = 0,
   typeTags,
+  showCheckIn,
   isInTodayPlan,
   isSelectedForTodayPlan,
   onToggleTodayPlanSelection,
@@ -205,11 +241,14 @@ function TodoRow({
   onCompletionBlocked,
   hasChildren,
   isExpanded,
-  onToggleChildren
+  onToggleChildren,
+  isDetailExpanded,
+  onToggleDetail
 }: {
   todo: Todo;
   depth?: number;
   typeTags: { id: string; name: string; color: string }[];
+  showCheckIn: boolean;
   isInTodayPlan: boolean;
   isSelectedForTodayPlan: boolean;
   onToggleTodayPlanSelection: (todoId: string, checked: boolean) => void;
@@ -221,6 +260,8 @@ function TodoRow({
   hasChildren: boolean;
   isExpanded: boolean;
   onToggleChildren: (todoId: string) => void;
+  isDetailExpanded: boolean;
+  onToggleDetail: (todoId: string) => void;
 }) {
   const badge = getTodoTimeBadge(todo);
 
@@ -238,8 +279,10 @@ function TodoRow({
     });
   }
 
+  const rowClassName = ['todo-row', showCheckIn ? 'has-checkin' : '', depth > 0 ? 'child-row' : ''].filter(Boolean).join(' ');
+
   return (
-    <div className={depth > 0 ? 'todo-row child-row' : 'todo-row'} role="row">
+    <div className={rowClassName} role="row">
       <div
         className="title-cell"
         style={{ gridTemplateColumns: `${30 + Math.min(depth, 6) * 24}px auto minmax(0, 1fr) auto` }}
@@ -307,42 +350,63 @@ function TodoRow({
         <option value="short">短期</option>
         <option value="long">长期</option>
       </select>
-      <TodoCheckInCell todo={todo} onToggle={() => onToggleTodoCheckIn(todo)} />
-      <div className="mini-checks">
-        {(Object.keys(urgencyLabels) as UrgencyTag[]).map((tag) => (
-          <label key={tag}>
-            <input type="checkbox" checked={todo.urgencyTags.includes(tag)} onChange={() => toggleUrgency(tag)} />
-            {urgencyLabels[tag]}
-          </label>
-        ))}
-      </div>
-      <div className="type-tags" id={`todo-type-tags-${todo.id}`}>
-        {typeTags.length === 0 && <em>暂无标签</em>}
-        {typeTags.map((tag) => (
-          <label key={tag.id} style={{ borderColor: tag.color }}>
-            <input
-              type="checkbox"
-              aria-label={`${todo.title} 类型标签 ${tag.name}`}
-              checked={todo.typeTagIds.includes(tag.id)}
-              onChange={() => toggleTypeTag(tag.id)}
-            />
-            {tag.name}
-          </label>
-        ))}
-      </div>
+      {showCheckIn && <TodoCheckInCell todo={todo} onToggle={() => onToggleTodoCheckIn(todo)} />}
       <div className="row-actions">
         <button
+          className={isDetailExpanded ? 'ghost-button icon-button detail-toggle expanded' : 'ghost-button icon-button detail-toggle'}
           type="button"
-          aria-label={`创建子项 ${todo.title}`}
-          onClick={() => onAddTodo(createDefaultTodo('子待办', { parentId: todo.id, term: todo.term }))}
+          aria-label={`${isDetailExpanded ? '收起' : '展开'} ${todo.title} 的详情`}
+          aria-expanded={isDetailExpanded}
+          title={isDetailExpanded ? '收起详情' : '展开详情'}
+          onClick={() => onToggleDetail(todo.id)}
         >
-          <Plus size={16} />
-          子项
+          <ChevronDown size={16} aria-hidden="true" />
         </button>
         <button className="ghost-button icon-button" type="button" onClick={() => onDeleteTodo(todo.id)} aria-label={`删除 ${todo.title}`}>
           <Trash2 size={16} />
         </button>
       </div>
+      {isDetailExpanded && (
+        <div className="todo-detail-row">
+          <div className="detail-group">
+            <span className="detail-label">紧急 / 重要</span>
+            <div className="mini-checks">
+              {(Object.keys(urgencyLabels) as UrgencyTag[]).map((tag) => (
+                <label key={tag}>
+                  <input type="checkbox" checked={todo.urgencyTags.includes(tag)} onChange={() => toggleUrgency(tag)} />
+                  {urgencyLabels[tag]}
+                </label>
+              ))}
+            </div>
+          </div>
+          <div className="detail-group">
+            <span className="detail-label">类型标签</span>
+            <div className="type-tags" id={`todo-type-tags-${todo.id}`}>
+              {typeTags.length === 0 && <em>暂无标签</em>}
+              {typeTags.map((tag) => (
+                <label key={tag.id} style={{ borderColor: tag.color }}>
+                  <input
+                    type="checkbox"
+                    aria-label={`${todo.title} 类型标签 ${tag.name}`}
+                    checked={todo.typeTagIds.includes(tag.id)}
+                    onChange={() => toggleTypeTag(tag.id)}
+                  />
+                  {tag.name}
+                </label>
+              ))}
+            </div>
+          </div>
+          <button
+            className="ghost-button"
+            type="button"
+            aria-label={`创建子项 ${todo.title}`}
+            onClick={() => onAddTodo(createDefaultTodo('子待办', { parentId: todo.id, term: todo.term }))}
+          >
+            <Plus size={14} />
+            子项
+          </button>
+        </div>
+      )}
     </div>
   );
 }

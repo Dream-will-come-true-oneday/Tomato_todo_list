@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { type TimerPanelHandle, type TimerSnapshot } from './components/TimerPanel';
+import { ToastHost, useToasts } from './components/Toast';
 import { TopNav } from './components/TopNav';
 import { GlobalSettingsDialog } from './components/GlobalSettingsDialog';
 import { getDesktopBridge } from './desktopBridge';
@@ -78,22 +79,26 @@ export default function App() {
   undoStateRef.current = undoState;
   const settingsOpenRef = useRef(settingsOpen);
   settingsOpenRef.current = settingsOpen;
-  const [undoToast, setUndoToast] = useState<{ message: string; canUndo: boolean } | null>(null);
-  const undoToastTimerRef = useRef<number | null>(null);
+  const { toasts, showToast, dismissToast } = useToasts();
+  const undoToastIdRef = useRef<number | null>(null);
   const prevUndoTopSeqRef = useRef<number | undefined>(undefined);
 
   function flashUndoToast(message: string, canUndo: boolean, duration: number) {
-    setUndoToast({ message, canUndo });
-    if (undoToastTimerRef.current !== null) window.clearTimeout(undoToastTimerRef.current);
-    undoToastTimerRef.current = window.setTimeout(() => setUndoToast(null), duration);
+    if (undoToastIdRef.current !== null) dismissToast(undoToastIdRef.current);
+    undoToastIdRef.current = showToast(
+      canUndo ? `${message} — Ctrl+Z 可撤销` : message,
+      {
+        action: canUndo ? { label: '撤销', perform: performUndo } : undefined,
+        duration
+      }
+    );
   }
 
   function hideUndoToast() {
-    if (undoToastTimerRef.current !== null) {
-      window.clearTimeout(undoToastTimerRef.current);
-      undoToastTimerRef.current = null;
+    if (undoToastIdRef.current !== null) {
+      dismissToast(undoToastIdRef.current);
+      undoToastIdRef.current = null;
     }
-    setUndoToast(null);
   }
 
   function performUndo() {
@@ -132,13 +137,6 @@ export default function App() {
       flashUndoToast(top.label, true, 8000);
     }
   }, [undoState.undoStack]);
-
-  useEffect(
-    () => () => {
-      if (undoToastTimerRef.current !== null) window.clearTimeout(undoToastTimerRef.current);
-    },
-    []
-  );
 
   useEffect(() => {
     function handleUndoShortcut(event: KeyboardEvent) {
@@ -381,6 +379,7 @@ export default function App() {
           onToggleTodoCheckIn={(todoId) => dispatchData({ type: 'toggleTodoCheckIn', todoId, date: today })}
           focusTodoId={todoTagFocusId}
           onFocusHandled={() => setTodoTagFocusId(null)}
+          onToast={showToast}
         />
       )}
       {page === 'completed' && (
@@ -435,18 +434,7 @@ export default function App() {
           onReplaceData={replaceData}
         />
       )}
-      {undoToast && (
-        <div className="undo-toast" role="status">
-          <span className="undo-toast-message">
-            {undoToast.canUndo ? `${undoToast.message} — Ctrl+Z 可撤销` : undoToast.message}
-          </span>
-          {undoToast.canUndo && (
-            <button type="button" className="undo-toast-action" onClick={performUndo}>
-              撤销
-            </button>
-          )}
-        </div>
-      )}
+      <ToastHost toasts={toasts} onDismiss={dismissToast} />
     </main>
   );
 }
