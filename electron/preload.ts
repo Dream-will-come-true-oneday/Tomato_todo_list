@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { DailyScheduleSettings } from '../src/domain/types';
 import type { ScheduleReminder } from '../src/domain/dailySchedule';
+import type { UpdateStatus } from '../src/desktopBridge';
 
 contextBridge.exposeInMainWorld('desktopBridge', {
   isDesktop: true,
@@ -19,6 +20,15 @@ contextBridge.exposeInMainWorld('desktopBridge', {
   },
   getAutoLaunch: () => ipcRenderer.invoke('auto-launch:get'),
   setAutoLaunch: (enabled: boolean) => ipcRenderer.invoke('auto-launch:set', enabled),
+  checkForUpdate: () => ipcRenderer.invoke('updater:check') as Promise<UpdateStatus>,
+  downloadUpdate: () => ipcRenderer.invoke('updater:download') as Promise<void>,
+  installUpdate: () => ipcRenderer.invoke('updater:install') as Promise<void>,
+  getAppVersion: () => ipcRenderer.invoke('updater:version') as Promise<string>,
+  onUpdateStatus: (listener: (status: UpdateStatus) => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, status: UpdateStatus) => listener(status);
+    ipcRenderer.on('updater:status', wrapped);
+    return () => ipcRenderer.removeListener('updater:status', wrapped);
+  },
   saveFullBackup: (contents: string, suggestedName: string) =>
     ipcRenderer.invoke('backup:save', { contents, suggestedName })
 });

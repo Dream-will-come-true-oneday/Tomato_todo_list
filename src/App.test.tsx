@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
+import type { UpdateStatus } from './desktopBridge';
 import { createBacklogItem, createDefaultAppData, createDefaultTodo } from './domain/defaultData';
 import { STORAGE_KEY } from './domain/storage';
 import { toDateKey } from './domain/todoFilters';
@@ -564,4 +565,48 @@ describe('App workflows', () => {
     fireEvent.click(screen.getByRole('button', { name: '关闭设置' }));
     expect(screen.queryByRole('dialog', { name: '设置' })).toBeNull();
     expect(screen.getByText('知行合一')).toBeTruthy();
+  });
+
+  it('checks for updates through the desktop bridge in settings', async () => {
+    let updateListener: ((status: UpdateStatus) => void) | null = null;
+    const bridge = {
+      isDesktop: true as const,
+      syncDailySchedule: vi.fn().mockResolvedValue(undefined),
+      onDailyScheduleReminder: vi.fn(() => () => undefined),
+      onOpenDailySchedule: vi.fn(() => () => undefined),
+      getAutoLaunch: vi.fn().mockResolvedValue(false),
+      setAutoLaunch: vi.fn().mockResolvedValue(false),
+      checkForUpdate: vi.fn().mockResolvedValue({ phase: 'checking' }),
+      downloadUpdate: vi.fn().mockResolvedValue(undefined),
+      installUpdate: vi.fn().mockResolvedValue(undefined),
+      getAppVersion: vi.fn().mockResolvedValue('1.0.1'),
+      onUpdateStatus: vi.fn((listener: (status: UpdateStatus) => void) => {
+        updateListener = listener;
+        return () => {
+          updateListener = null;
+        };
+      }),
+      saveFullBackup: vi.fn()
+    };
+    (window as { desktopBridge?: unknown }).desktopBridge = bridge;
+
+    try {
+      render(<App />);
+      fireEvent.click(screen.getByRole('button', { name: '打开设置' }));
+      await screen.findByText('当前版本 v1.0.1');
+
+      fireEvent.click(screen.getByRole('button', { name: '检查更新' }));
+      await screen.findByText('正在检查更新…');
+      expect(bridge.checkForUpdate).toHaveBeenCalledTimes(1);
+
+      act(() => {
+        updateListener?.({ phase: 'available', version: '1.1.0' });
+      });
+      expect(screen.getByText('发现新版本 v1.1.0')).toBeTruthy();
+
+      fireEvent.click(screen.getByRole('button', { name: '以后再说' }));
+      expect(screen.getByRole('button', { name: '检查更新' })).toBeTruthy();
+    } finally {
+      delete (window as { desktopBridge?: unknown }).desktopBridge;
+    }
   });

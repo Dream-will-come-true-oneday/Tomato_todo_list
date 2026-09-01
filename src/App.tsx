@@ -17,6 +17,7 @@ import {
   Lightbulb,
   ListTodo,
   Plus,
+  RefreshCw,
   RotateCcw,
   ScrollText,
   Send,
@@ -34,7 +35,7 @@ import heroImage from './assets/longchang-awakening-hero.png';
 import inspirationFountainImage from './assets/inspiration-cupid-fountain.png';
 import pomodoroBackgroundImage from './assets/longchang-awakening-pomodoro.png';
 import TimerPanel, { type TimerPanelHandle, type TimerSnapshot } from './components/TimerPanel';
-import { getDesktopBridge, type SaveBackupResult } from './desktopBridge';
+import { getDesktopBridge, type SaveBackupResult, type UpdateStatus } from './desktopBridge';
 import { appReducer } from './domain/appReducer';
 import {
   createBacklogItem,
@@ -1218,6 +1219,8 @@ function GlobalSettingsDialog({
   const [message, setMessage] = useState<string | null>(null);
   const [pendingImport, setPendingImport] = useState<PendingDataImport | null>(null);
   const [busy, setBusy] = useState(false);
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
   const busyRef = useRef(busy);
   busyRef.current = busy;
   const settings = data.dailySchedule;
@@ -1270,6 +1273,34 @@ function GlobalSettingsDialog({
       disposed = true;
     };
   }, [desktopBridge]);
+
+  useEffect(() => {
+    if (!desktopBridge) return;
+    let disposed = false;
+    void desktopBridge.getAppVersion().then((version) => {
+      if (!disposed) setAppVersion(version);
+    });
+    const unsubscribe = desktopBridge.onUpdateStatus((status) => {
+      if (!disposed) setUpdateStatus(status);
+    });
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, [desktopBridge]);
+
+  async function handleCheckForUpdate() {
+    if (!desktopBridge) return;
+    setUpdateStatus({ phase: 'checking' });
+    const result = await desktopBridge.checkForUpdate();
+    if (result.phase !== 'checking') setUpdateStatus(result);
+  }
+
+  async function handleDownloadUpdate() {
+    if (!desktopBridge) return;
+    setUpdateStatus({ phase: 'downloading', percent: 0 });
+    await desktopBridge.downloadUpdate();
+  }
 
   async function toggleScheduleSystemReminder() {
     if (settings.desktopNotificationEnabled) {
@@ -1466,6 +1497,79 @@ function GlobalSettingsDialog({
                 开机启动
               </label>
             </div>
+          </section>
+
+          <section className="settings-section update-settings-section" aria-labelledby="update-settings-title">
+            <div className="settings-section-heading">
+              <RefreshCw size={19} />
+              <div>
+                <h3 id="update-settings-title">软件更新</h3>
+                <span>{appVersion ? `当前版本 v${appVersion}` : '检查获取最新版本'}</span>
+              </div>
+            </div>
+            {!desktopBridge && <p className="update-status-text">浏览器模式不支持应用内更新，请下载最新桌面版安装包。</p>}
+            {desktopBridge && updateStatus === null && (
+              <div className="data-action-row">
+                <button type="button" onClick={() => void handleCheckForUpdate()}>
+                  <RefreshCw size={17} />
+                  检查更新
+                </button>
+              </div>
+            )}
+            {desktopBridge && updateStatus && (
+              <div className="update-status" role="status">
+                {updateStatus.phase === 'checking' && <p className="update-status-text">正在检查更新…</p>}
+                {updateStatus.phase === 'not-available' && <p className="update-status-text">已是最新版本</p>}
+                {updateStatus.phase === 'unsupported' && <p className="update-status-text">开发环境暂不支持应用内更新</p>}
+                {updateStatus.phase === 'available' && (
+                  <>
+                    <p className="update-status-text">发现新版本 v{updateStatus.version}</p>
+                    <div className="data-action-row">
+                      <button type="button" onClick={() => void handleDownloadUpdate()}>
+                        <Download size={17} />
+                        立即下载
+                      </button>
+                      <button className="ghost-button" type="button" onClick={() => setUpdateStatus(null)}>
+                        以后再说
+                      </button>
+                    </div>
+                  </>
+                )}
+                {updateStatus.phase === 'downloading' && (
+                  <>
+                    <p className="update-status-text">正在下载新版本 {Math.round(updateStatus.percent)}%</p>
+                    <div className="update-progress" aria-hidden="true">
+                      <div className="update-progress-bar" style={{ width: `${Math.min(100, Math.max(0, updateStatus.percent))}%` }} />
+                    </div>
+                  </>
+                )}
+                {updateStatus.phase === 'downloaded' && (
+                  <>
+                    <p className="update-status-text">新版本 v{updateStatus.version} 已就绪</p>
+                    <div className="data-action-row">
+                      <button type="button" onClick={() => void desktopBridge.installUpdate()}>
+                        <RefreshCw size={17} />
+                        重启并安装
+                      </button>
+                      <button className="ghost-button" type="button" onClick={() => setUpdateStatus(null)}>
+                        以后再说
+                      </button>
+                    </div>
+                  </>
+                )}
+                {updateStatus.phase === 'error' && (
+                  <>
+                    <p className="update-status-text">{updateStatus.message}</p>
+                    <div className="data-action-row">
+                      <button type="button" onClick={() => void handleCheckForUpdate()}>
+                        <RefreshCw size={17} />
+                        重试
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </section>
 
           <section className="settings-section data-settings-section" aria-labelledby="data-settings-title">
