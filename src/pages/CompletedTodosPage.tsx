@@ -14,7 +14,7 @@ import { achievementTime, buildCompletedTodoGroups, filterCompletedTodoGroups, t
 import { getAchievementTypeTagShares } from '../domain/reporting';
 import { toDateKey } from '../domain/todoFilters';
 import type { Todo } from '../domain/types';
-import { defaultTodoFilters, type TodoFilterState, type TypeTagView } from '../lib/todoView';
+import { defaultTodoFilters, type TodoFilterState, type TypeTagView } from '../domain/todoView';
 
 export default function CompletedTodosPage({
   data,

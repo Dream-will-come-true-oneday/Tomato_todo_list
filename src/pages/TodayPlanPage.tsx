@@ -2,7 +2,7 @@ import { Trash2 } from 'lucide-react';
 import { PageTitle } from '../components/PageTitle';
 import type { Todo, TodoStatus } from '../domain/types';
 import { asInputDate } from '../lib/dateUtils';
-import { statusLabels } from '../lib/todoView';
+import { statusLabels } from '../domain/todoView';
 
 export default function TodayPlanPage({
   dateKey,

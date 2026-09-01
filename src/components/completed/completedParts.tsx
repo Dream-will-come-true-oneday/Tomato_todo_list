@@ -2,7 +2,7 @@ import { CalendarCheck2, ChartPie, CheckCircle2 } from 'lucide-react';
 import type { TodoAchievementKind, TypeTagShare } from '../../domain/reporting';
 import { isCompletedLate } from '../../domain/todoStatus';
 import type { Todo, TodoStatus } from '../../domain/types';
-import { statusLabels, type TypeTagView } from '../../lib/todoView';
+import { statusLabels, type TypeTagView } from '../../domain/todoView';
 
 export function CompletedCheckInCount({ todo }: { todo: Todo }) {
   return (

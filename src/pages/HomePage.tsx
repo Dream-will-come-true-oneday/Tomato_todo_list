@@ -1,5 +1,5 @@
 import heroImage from '../assets/longchang-awakening-hero.png';
-import type { Page } from './types';
+import type { Page } from '../lib/navigation';
 
 export default function HomePage({ onNavigate }: { onNavigate: (page: Page) => void }) {
   return (

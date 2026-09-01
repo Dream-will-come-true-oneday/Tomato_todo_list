@@ -1,4 +1,4 @@
-import type { Todo, TodoStatus, TodoTerm, UrgencyTag } from '../domain/types';
+import type { Todo, TodoStatus, TodoTerm, UrgencyTag } from './types';
 
 export type TodoFilterState = {
   status: 'all' | Exclude<TodoStatus, 'archived'>;
@@ -58,4 +58,20 @@ export function matchesTodoSearch(todo: Todo, query: string) {
 
 export function getTodoTypeTags(todo: Todo, typeTags: TypeTagView[]) {
   return typeTags.filter((tag) => todo.typeTagIds.includes(tag.id));
+}
+
+export function compareNullableDate(a: string | null, b: string | null) {
+  const aValue = a ?? '9999-12-31';
+  const bValue = b ?? '9999-12-31';
+  return aValue.localeCompare(bValue);
+}
+
+export function compareTodosBySchedule(a: Todo, b: Todo) {
+  const dueCompare = compareNullableDate(a.dueAt, b.dueAt);
+  if (dueCompare !== 0) return dueCompare;
+
+  const startCompare = compareNullableDate(a.startAt, b.startAt);
+  if (startCompare !== 0) return startCompare;
+
+  return a.createdAt.localeCompare(b.createdAt) || a.title.localeCompare(b.title);
 }

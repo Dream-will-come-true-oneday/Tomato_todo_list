@@ -4,7 +4,7 @@ import inspirationFountainImage from '../assets/inspiration-cupid-fountain.png';
 import { PageTitle } from '../components/PageTitle';
 import type { BacklogItem, InspirationTag } from '../domain/types';
 import { currentIso } from '../lib/dateUtils';
-import type { Page } from './types';
+import type { Page } from '../lib/navigation';
 
 export default function BacklogPage({
   items,

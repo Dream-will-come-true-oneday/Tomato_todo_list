@@ -1,4 +1,4 @@
-import { compareTodosBySchedule } from '../lib/dateUtils';
+import { compareTodosBySchedule } from './todoView';
 import { isIncompleteTodo, isTodayPomodoroTodo } from './todoFilters';
 import type { DailyPomodoroPlan, Todo } from './types';
 

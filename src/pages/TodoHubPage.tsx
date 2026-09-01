@@ -4,8 +4,8 @@ import { PageTitle } from '../components/PageTitle';
 import { getAchievementsOn, getWeekStart, getWeekSummary } from '../domain/reporting';
 import { isIncompleteTodo, toDateKey } from '../domain/todoFilters';
 import type { PomodoroRecord, Todo } from '../domain/types';
-import { matchesTodoSearch, statusLabels, termLabels, type TypeTagView } from '../lib/todoView';
-import type { Page } from './types';
+import { matchesTodoSearch, statusLabels, termLabels, type TypeTagView } from '../domain/todoView';
+import type { Page } from '../lib/navigation';
 
 export default function TodoHubPage({
   data,

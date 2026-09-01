@@ -1,5 +1,5 @@
 import type { TodoStatus } from '../../domain/types';
-import { statusLabels, type TodoFilterState, type TypeTagView } from '../../lib/todoView';
+import { statusLabels, type TodoFilterState, type TypeTagView } from '../../domain/todoView';
 
 export function TodoFilterBar({
   filters,

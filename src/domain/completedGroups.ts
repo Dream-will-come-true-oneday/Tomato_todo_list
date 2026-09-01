@@ -1,5 +1,4 @@
-import { compareTodosBySchedule } from '../lib/dateUtils';
-import { matchesTodoFilters, type TodoFilterState } from '../lib/todoView';
+import { compareTodosBySchedule, matchesTodoFilters, type TodoFilterState } from './todoView';
 import { getAchievementsOn, type TodoAchievementKind } from './reporting';
 import type { Todo } from './types';
 

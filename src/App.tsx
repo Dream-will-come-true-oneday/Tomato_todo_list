@@ -32,7 +32,7 @@ import type {
 } from './domain/types';
 import { buildTodayPlanTodos } from './domain/todayPlan';
 import { currentIso } from './lib/dateUtils';
-import type { Page } from './pages/types';
+import type { Page } from './lib/navigation';
 import HomePage from './pages/HomePage';
 import TodoHubPage from './pages/TodoHubPage';
 import TodayPlanPage from './pages/TodayPlanPage';

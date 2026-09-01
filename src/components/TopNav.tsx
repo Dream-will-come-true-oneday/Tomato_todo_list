@@ -1,5 +1,5 @@
 import { CalendarRange, Clock3, Home, ListTodo } from 'lucide-react';
-import type { Page } from '../pages/types';
+import type { Page } from '../lib/navigation';
 
 export function TopNav({ page, onNavigate }: { page: Page; onNavigate: (page: Page) => void }) {
   return (

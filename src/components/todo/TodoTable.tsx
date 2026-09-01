@@ -4,8 +4,8 @@ import { createDefaultTodo } from '../../domain/defaultData';
 import { toDateKey } from '../../domain/todoFilters';
 import { getTodoTimeBadge } from '../../domain/todoStatus';
 import type { Todo, TodoStatus, TodoTerm, UrgencyTag } from '../../domain/types';
-import { asInputDate, compareTodosBySchedule, nullableDate } from '../../lib/dateUtils';
-import { statusLabels, urgencyLabels } from '../../lib/todoView';
+import { asInputDate, nullableDate } from '../../lib/dateUtils';
+import { compareTodosBySchedule, statusLabels, urgencyLabels } from '../../domain/todoView';
 
 export function TodoTable({
   title,

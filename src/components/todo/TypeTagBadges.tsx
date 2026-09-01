@@ -1,5 +1,5 @@
 import type { Todo } from '../../domain/types';
-import { getTodoTypeTags, type TypeTagView } from '../../lib/todoView';
+import { getTodoTypeTags, type TypeTagView } from '../../domain/todoView';
 
 export function TypeTagBadges({ todo, typeTags }: { todo: Todo; typeTags: TypeTagView[] }) {
   const tags = getTodoTypeTags(todo, typeTags);

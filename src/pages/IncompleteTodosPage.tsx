@@ -8,7 +8,7 @@ import { createDefaultTodo } from '../domain/defaultData';
 import { isIncompleteTodo, toDateKey } from '../domain/todoFilters';
 import type { Todo, TodoTerm } from '../domain/types';
 import { nullableDate } from '../lib/dateUtils';
-import { defaultTodoFilters, matchesTodoFilters, matchesTodoSearch, type TodoFilterState } from '../lib/todoView';
+import { defaultTodoFilters, matchesTodoFilters, matchesTodoSearch, type TodoFilterState } from '../domain/todoView';
 
 export default function IncompleteTodosPage({
   data,
