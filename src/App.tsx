@@ -765,6 +765,7 @@ function DailySchedulePage({
   const [now, setNow] = useState(() => new Date());
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [resetConfirm, setResetConfirm] = useState(false);
+  const [clearConfirm, setClearConfirm] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const sortedItems = useMemo(() => sortScheduleItems(settings.items), [settings.items]);
   const currentItem = useMemo(() => getCurrentScheduleItem(settings.items, now), [now, settings.items]);
@@ -842,6 +843,13 @@ function DailySchedulePage({
     setMessage('已恢复默认每日安排');
   }
 
+  function clearAllItems() {
+    onUpdate({ ...settings, items: [] });
+    setClearConfirm(false);
+    setDeleteConfirmId(null);
+    setMessage('已清空全部每日安排');
+  }
+
   return (
     <section className="page-panel daily-schedule-page">
       <header className="daily-schedule-header">
@@ -882,6 +890,15 @@ function DailySchedulePage({
             <RotateCcw size={17} />
             恢复默认
           </button>
+          <button
+            className="ghost-button"
+            type="button"
+            onClick={() => setClearConfirm(true)}
+            disabled={settings.items.length === 0}
+          >
+            <Trash2 size={17} />
+            一键清空
+          </button>
         </div>
       </div>
 
@@ -890,6 +907,14 @@ function DailySchedulePage({
           <span>恢复默认安排会替换当前全部时间段，是否继续？</span>
           <button type="button" onClick={restoreDefaults}>确认恢复</button>
           <button className="ghost-button" type="button" onClick={() => setResetConfirm(false)}>取消</button>
+        </div>
+      )}
+
+      {clearConfirm && (
+        <div className="inline-confirmation" role="alert">
+          <span>将清空当前全部 {settings.items.length} 项安排且无法撤销，是否继续？</span>
+          <button type="button" onClick={clearAllItems}>确认清空</button>
+          <button className="ghost-button" type="button" onClick={() => setClearConfirm(false)}>取消</button>
         </div>
       )}
 
