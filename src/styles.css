@@ -316,6 +316,34 @@ p {
   gap: 10px;
 }
 
+.update-status {
+  grid-column: 2;
+  display: grid;
+  gap: 12px;
+}
+
+.update-status-text {
+  grid-column: 2;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.update-progress {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--paper-deep);
+  overflow: hidden;
+}
+
+.update-progress-bar {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--jade);
+  transition: width 0.3s ease;
+}
+
 .backup-import-confirmation {
   grid-column: 2;
   display: grid;

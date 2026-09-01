@@ -8,8 +8,22 @@ export type DesktopBridge = {
   onOpenDailySchedule: (listener: () => void) => () => void;
   getAutoLaunch: () => Promise<boolean>;
   setAutoLaunch: (enabled: boolean) => Promise<boolean>;
+  checkForUpdate: () => Promise<UpdateStatus>;
+  downloadUpdate: () => Promise<void>;
+  installUpdate: () => Promise<void>;
+  getAppVersion: () => Promise<string>;
+  onUpdateStatus: (listener: (status: UpdateStatus) => void) => () => void;
   saveFullBackup: (contents: string, suggestedName: string) => Promise<SaveBackupResult>;
 };
+
+export type UpdateStatus =
+  | { phase: 'checking' }
+  | { phase: 'available'; version: string }
+  | { phase: 'not-available' }
+  | { phase: 'downloading'; percent: number }
+  | { phase: 'downloaded'; version: string }
+  | { phase: 'error'; message: string }
+  | { phase: 'unsupported' };
 
 export type SaveBackupResult =
   | { status: 'saved'; filePath: string }
@@ -17,5 +31,5 @@ export type SaveBackupResult =
   | { status: 'error'; message: string };
 
 export function getDesktopBridge() {
-  return window.desktopBridge;
+  return (window as { desktopBridge?: DesktopBridge }).desktopBridge;
 }

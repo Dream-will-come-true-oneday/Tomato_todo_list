@@ -4,6 +4,10 @@
   "version": "1.0.1",
   "private": true,
   "description": "龙场静修主题的番茄钟、待办与每日安排桌面应用",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Dream-will-come-true-oneday/Tomato_todo_list.git"
+  },
   "main": "dist-electron/electron/main.js",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
@@ -11,11 +15,13 @@
     "desktop:compile": "tsc -p tsconfig.electron.json",
     "desktop:dev": "npm run desktop:compile && concurrently -k \"npm run dev\" \"wait-on http://127.0.0.1:5173 && electron .\"",
     "build:desktop": "npm run build && npm run desktop:compile && electron-builder",
+    "release:desktop": "npm run build && npm run desktop:compile && electron-builder --publish always",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.3.4",
+    "electron-updater": "^6.8.9",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -66,6 +72,11 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "Dream-will-come-true-oneday",
+      "repo": "Tomato_todo_list"
     }
   },
   "allowScripts": {

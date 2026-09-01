@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, powerMonitor, Tray } from 'electron';
+import { autoUpdater } from 'electron-updater';
 import fs from 'node:fs';
 import path from 'node:path';
 import { getLatestMissedScheduleReminder, getScheduleReminderKey, type ScheduleReminder } from '../src/domain/dailySchedule';
@@ -16,6 +17,26 @@ let lastFiredOccurrenceKey: string | null = null;
 
 function schedulerStatePath() {
   return path.join(app.getPath('userData'), 'daily-schedule-state.json');
+}
+
+type UpdaterStatus =
+  | { phase: 'available'; version: string }
+  | { phase: 'not-available' }
+  | { phase: 'downloading'; percent: number }
+  | { phase: 'downloaded'; version: string }
+  | { phase: 'error'; message: string };
+
+function sendUpdaterStatus(status: UpdaterStatus) {
+  mainWindow?.webContents.send('updater:status', status);
+}
+
+function setupUpdater() {
+  autoUpdater.autoDownload = false;
+  autoUpdater.on('update-available', (info) => sendUpdaterStatus({ phase: 'available', version: info.version }));
+  autoUpdater.on('update-not-available', () => sendUpdaterStatus({ phase: 'not-available' }));
+  autoUpdater.on('download-progress', (progress) => sendUpdaterStatus({ phase: 'downloading', percent: progress.percent }));
+  autoUpdater.on('update-downloaded', (info) => sendUpdaterStatus({ phase: 'downloaded', version: info.version }));
+  autoUpdater.on('error', (error) => sendUpdaterStatus({ phase: 'error', message: error.message || '更新检查失败' }));
 }
 
 function loadSchedulerState() {
@@ -139,6 +160,30 @@ function registerIpc() {
     });
     return app.getLoginItemSettings().openAtLogin;
   });
+  ipcMain.handle('updater:check', async () => {
+    if (!app.isPackaged) return { phase: 'unsupported' };
+    try {
+      await autoUpdater.checkForUpdates();
+      return { phase: 'checking' };
+    } catch (error) {
+      return { phase: 'error', message: error instanceof Error ? error.message : '更新检查失败' };
+    }
+  });
+  ipcMain.handle('updater:download', async () => {
+    if (!app.isPackaged) return;
+    try {
+      await autoUpdater.downloadUpdate();
+    } catch {
+      // 错误已通过 updater:status 的 error 事件通知渲染进程。
+    }
+  });
+  ipcMain.handle('updater:install', () => {
+    if (app.isPackaged) {
+      isQuitting = true;
+      autoUpdater.quitAndInstall();
+    }
+  });
+  ipcMain.handle('updater:version', () => app.getVersion());
   ipcMain.handle('backup:save', async (_event, payload: { contents?: unknown; suggestedName?: unknown }) => {
     if (typeof payload?.contents !== 'string' || typeof payload.suggestedName !== 'string') {
       return { status: 'error', message: '备份内容无效' };
@@ -171,6 +216,7 @@ if (!singleInstanceLock) {
   app.whenReady().then(() => {
     app.setAppUserModelId('com.longchang.pomodoro-todo');
     loadSchedulerState();
+    setupUpdater();
     registerIpc();
     createWindow();
     createTray();
