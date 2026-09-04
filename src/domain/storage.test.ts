@@ -69,6 +69,8 @@ describe('storage', () => {
       dueAt: '2026-07-17T18:00:00.000Z'
     });
     expect(result.data.todos[0].checkInDates).toEqual([]);
+    expect(result.data.todos[0].order).toBeNull();
+    expect(result.data.todoSortMode).toBe('schedule');
     expect(result.data.presets[0].soundEnabled).toBe(true);
     expect(result.data.todayPlans).toEqual({});
     expect(result.data.weeklyReflections).toEqual([]);

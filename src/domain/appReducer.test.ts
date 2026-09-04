@@ -499,4 +499,49 @@ describe('undoableAppReducer', () => {
     expect(replaced.undoStack).toHaveLength(0);
     expect(replaced.redoStack).toHaveLength(0);
   });
+
+  it('renumbers manual order within a sibling group and leaves other todos untouched', () => {
+    const data = createDefaultAppData();
+    const first = { ...data.todos[0], id: 'todo-a' };
+    const second = { ...data.todos[0], id: 'todo-b' };
+    const third = { ...data.todos[0], id: 'todo-c' };
+
+    const next = appReducer({ ...data, todos: [first, second, third] }, {
+      type: 'reorderTodos',
+      parentId: null,
+      orderedIds: ['todo-c', 'todo-a', 'todo-b']
+    });
+
+    expect(next.todos.find((todo) => todo.id === 'todo-c')?.order).toBe(0);
+    expect(next.todos.find((todo) => todo.id === 'todo-a')?.order).toBe(1);
+    expect(next.todos.find((todo) => todo.id === 'todo-b')?.order).toBe(2);
+  });
+
+  it('keeps todos unchanged when reordering with an empty id list', () => {
+    const data = createDefaultAppData();
+
+    expect(appReducer(data, { type: 'reorderTodos', parentId: null, orderedIds: [] })).toBe(data);
+  });
+
+  it('switches todo sort mode and ignores no-op switches', () => {
+    const data = createDefaultAppData();
+
+    const manual = appReducer(data, { type: 'setTodoSortMode', mode: 'manual' });
+    expect(manual.todoSortMode).toBe('manual');
+
+    expect(appReducer(manual, { type: 'setTodoSortMode', mode: 'manual' })).toBe(manual);
+
+    const schedule = appReducer(manual, { type: 'setTodoSortMode', mode: 'schedule' });
+    expect(schedule.todoSortMode).toBe('schedule');
+  });
+
+  it('does not push sort mode switches into the undo stack', () => {
+    const state0 = initUndoState();
+
+    const switched = undoableAppReducer(state0, { type: 'data', action: { type: 'setTodoSortMode', mode: 'manual' } });
+
+    expect(switched.data.todoSortMode).toBe('manual');
+    expect(switched.undoStack).toHaveLength(0);
+    expect(switched.redoStack).toHaveLength(0);
+  });
 });

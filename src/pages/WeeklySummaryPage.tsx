@@ -4,7 +4,7 @@ import { PageTitle } from '../components/PageTitle';
 import { buildWeeklyTodoTree, getWeekStart, getWeekSummary, type WeeklyTodoNode } from '../domain/reporting';
 import { toDateKey } from '../domain/todoFilters';
 import type { PomodoroRecord, Todo } from '../domain/types';
-import { type TypeTagView } from '../lib/todoView';
+import { type TypeTagView } from '../domain/todoView';
 
 export default function WeeklySummaryPage({
   data,
@@ -128,7 +128,7 @@ function WeeklyTodoTreeItem({ node, depth = 0 }: { node: WeeklyTodoNode; depth?:
 
 function WeeklyMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="weekly-metric">
+    <div className="metric-card">
       <span>{label}</span>
       <strong>{value}</strong>
     </div>

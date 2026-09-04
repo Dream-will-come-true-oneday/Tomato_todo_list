@@ -104,6 +104,7 @@ export function createDefaultTodo(
     typeTagIds: options.typeTagIds ?? [],
     startAt: options.startAt ?? null,
     dueAt: options.dueAt ?? null,
+    order: null,
     createdAt,
     updatedAt: createdAt,
     completedAt: null,
@@ -170,6 +171,7 @@ export function createDefaultAppData(): AppData {
     pomodoroRecords: [],
     todayPlans: {},
     dailySchedule: createDefaultDailySchedule(),
-    activePresetId: presets[0].id
+    activePresetId: presets[0].id,
+    todoSortMode: 'schedule'
   };
 }

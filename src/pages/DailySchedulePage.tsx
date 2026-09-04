@@ -20,7 +20,6 @@ export default function DailySchedulePage({
   onUpdate: (settings: DailyScheduleSettings, undoLabel?: string) => void;
 }) {
   const [now, setNow] = useState(() => new Date());
-  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [resetConfirm, setResetConfirm] = useState(false);
   const [clearConfirm, setClearConfirm] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -89,13 +88,12 @@ export default function DailySchedulePage({
     setMessage('当前没有可用的提醒时间');
   }
 
-  function confirmDelete(itemId: string) {
+  function deleteItem(itemId: string) {
     const target = settings.items.find((item) => item.id === itemId);
     onUpdate(
       { ...settings, items: settings.items.filter((item) => item.id !== itemId) },
       `已删除每日安排「${target?.title ? shortenUndoTitle(target.title) : '未命名安排'}」`
     );
-    setDeleteConfirmId(null);
   }
 
   function restoreDefaults() {
@@ -107,7 +105,6 @@ export default function DailySchedulePage({
   function clearAllItems() {
     onUpdate({ ...settings, items: [] }, '已清空全部每日安排');
     setClearConfirm(false);
-    setDeleteConfirmId(null);
     setMessage('已清空全部每日安排');
   }
 
@@ -147,12 +144,12 @@ export default function DailySchedulePage({
             <Plus size={17} />
             新增安排
           </button>
-          <button className="ghost-button" type="button" onClick={() => setResetConfirm(true)}>
+          <button className="btn-secondary" type="button" onClick={() => setResetConfirm(true)}>
             <RotateCcw size={17} />
             恢复默认
           </button>
           <button
-            className="ghost-button"
+            className="btn-secondary"
             type="button"
             onClick={() => setClearConfirm(true)}
             disabled={settings.items.length === 0}
@@ -241,18 +238,11 @@ export default function DailySchedulePage({
                 type="button"
                 title={`删除 ${item.title || '未命名安排'}`}
                 aria-label={`删除安排 ${item.title || '未命名安排'}`}
-                onClick={() => setDeleteConfirmId(item.id)}
+                onClick={() => deleteItem(item.id)}
               >
                 <Trash2 size={17} />
               </button>
             </div>
-            {deleteConfirmId === item.id && (
-              <div className="daily-item-delete-confirmation" role="alert">
-                <span>确定删除“{item.title || '未命名安排'}”吗？</span>
-                <button type="button" onClick={() => confirmDelete(item.id)}>确认删除</button>
-                <button className="ghost-button" type="button" onClick={() => setDeleteConfirmId(null)}>取消</button>
-              </div>
-            )}
           </article>
         ))}
         {sortedItems.length === 0 && <p className="empty-state">尚未添加每日安排。</p>}

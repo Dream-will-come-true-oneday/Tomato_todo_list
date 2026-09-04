@@ -4,7 +4,7 @@ import pomodoroBackgroundImage from '../assets/longchang-awakening-pomodoro.png'
 import { PageTitle } from '../components/PageTitle';
 import TimerPanel, { type TimerPanelHandle, type TimerSnapshot } from '../components/TimerPanel';
 import type { TimerPreset, Todo } from '../domain/types';
-import type { Page } from './types';
+import type { Page } from '../lib/navigation';
 
 export default function PomodoroPage({
   activePreset,

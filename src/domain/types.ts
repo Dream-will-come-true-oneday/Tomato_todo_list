@@ -5,6 +5,7 @@ export type TodoTerm = 'short' | 'long';
 export type UrgencyTag = 'urgent' | 'important';
 export type PomodoroCompletionType = 'completed' | 'skipped' | 'reset';
 export type InspirationStatus = 'active' | 'completed';
+export type TodoSortMode = 'schedule' | 'manual';
 
 export type TimerPreset = {
   id: string;
@@ -29,6 +30,8 @@ export type Todo = {
   typeTagIds: string[];
   startAt: string | null;
   dueAt: string | null;
+  /** 手动排序序号（同级组内 0 起）；null/undefined = 未手动排，比较时殿后并回退日程序 */
+  order?: number | null;
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
@@ -118,4 +121,5 @@ export type AppData = {
   todayPlans: Record<string, DailyPomodoroPlan>;
   dailySchedule: DailyScheduleSettings;
   activePresetId: string;
+  todoSortMode: TodoSortMode;
 };

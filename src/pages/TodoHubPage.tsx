@@ -1,10 +1,11 @@
 import { ArrowUpRight, CalendarDays, CalendarRange, CheckCircle2, Lightbulb, ListTodo } from 'lucide-react';
+import { useState } from 'react';
 import { PageTitle } from '../components/PageTitle';
 import { getAchievementsOn, getWeekStart, getWeekSummary } from '../domain/reporting';
 import { isIncompleteTodo, toDateKey } from '../domain/todoFilters';
 import type { PomodoroRecord, Todo } from '../domain/types';
-import { type TypeTagView } from '../lib/todoView';
-import type { Page } from './types';
+import { matchesTodoSearch, statusLabels, termLabels, type TypeTagView } from '../domain/todoView';
+import type { Page } from '../lib/navigation';
 
 export default function TodoHubPage({
   data,
@@ -15,6 +16,13 @@ export default function TodoHubPage({
   todayPlanTodos: Todo[];
   onNavigate: (page: Page) => void;
 }) {
+  const [searchQuery, setSearchQuery] = useState('');
+  const query = searchQuery.trim();
+  const searchMatches = query
+    ? data.todos
+        .filter((todo) => matchesTodoSearch(todo, query))
+        .sort((a, b) => Number(isIncompleteTodo(b)) - Number(isIncompleteTodo(a)))
+    : [];
   const today = toDateKey();
   const weekSummary = getWeekSummary(data.todos, data.typeTags, data.pomodoroRecords, getWeekStart());
   const achievementsToday = getAchievementsOn(data.todos, today).length;
@@ -23,6 +31,45 @@ export default function TodoHubPage({
   return (
     <section className="page-panel hub-panel">
       <PageTitle eyebrow="案牍" title="待办事项" />
+      <div className="hub-search">
+        <input
+          aria-label="搜索待办"
+          type="search"
+          placeholder="搜索标题或备注，点击结果跳转对应页面…"
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+        />
+      </div>
+      {query && (
+        <section className="hub-search-results" aria-label="待办搜索结果">
+          <div className="hub-search-results-heading">
+            <h2>搜索结果</h2>
+            <span>共 {searchMatches.length} 条</span>
+          </div>
+          {searchMatches.length === 0 ? (
+            <p className="empty-state table-empty">没有匹配的待办。</p>
+          ) : (
+            <div className="hub-search-list">
+              {searchMatches.map((todo) => {
+                const statusLabel = todo.status === 'archived' ? '已归档' : statusLabels[todo.status];
+                const statusTone = todo.status === 'completed' ? 'info' : todo.status === 'active' ? 'warning' : 'neutral';
+                return (
+                  <button
+                    key={todo.id}
+                    className="hub-search-result"
+                    type="button"
+                    onClick={() => onNavigate(isIncompleteTodo(todo) ? 'incomplete' : 'completed')}
+                  >
+                    <em className={`badge ${statusTone}`}>{statusLabel}</em>
+                    <strong>{todo.title}</strong>
+                    <small>{termLabels[todo.term]}</small>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      )}
       <div className="todo-hub-summary" aria-label="待办摘要">
         <HubMetric label="今日安排" value={todayPlanTodos.length} />
         <HubMetric label="未完成" value={incompleteTodoCount} />
@@ -70,7 +117,7 @@ export default function TodoHubPage({
 
 function HubMetric({ label, value }: { label: string; value: number }) {
   return (
-    <div className="hub-metric">
+    <div className="metric-card">
       <strong>{value}</strong>
       <span>{label}</span>
     </div>

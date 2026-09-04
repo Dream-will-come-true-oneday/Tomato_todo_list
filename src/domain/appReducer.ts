@@ -8,6 +8,7 @@ import type {
   PomodoroCompletionType,
   TimerPreset,
   Todo,
+  TodoSortMode,
   TodoTypeTag,
   InspirationTag,
   WeeklyReflection
@@ -38,6 +39,8 @@ export type AppAction =
   | { type: 'addTodayPlanTodo'; date: string; todoId: string }
   | { type: 'removeTodayPlanTodo'; date: string; todoId: string; isDefaultTodo: boolean }
   | { type: 'updateDailySchedule'; schedule: DailyScheduleSettings }
+  | { type: 'reorderTodos'; parentId: string | null; orderedIds: string[] }
+  | { type: 'setTodoSortMode'; mode: TodoSortMode }
   | { type: 'replaceData'; data: AppData }
   | { type: 'setActivePreset'; presetId: string }
   | { type: 'upsertPreset'; preset: TimerPreset }
@@ -238,6 +241,21 @@ export function appReducer(data: AppData, action: AppAction): AppData {
     }
     case 'updateDailySchedule': {
       return { ...data, dailySchedule: action.schedule };
+    }
+    case 'reorderTodos': {
+      // orderedIds 应覆盖该同级组的全部可见成员；组内整体重编号，组外成员不动
+      const orderById = new Map(action.orderedIds.map((todoId, index) => [todoId, index]));
+      if (orderById.size === 0) return data;
+      return {
+        ...data,
+        todos: data.todos.map((todo) =>
+          orderById.has(todo.id) ? { ...todo, order: orderById.get(todo.id) } : todo
+        )
+      };
+    }
+    case 'setTodoSortMode': {
+      if (data.todoSortMode === action.mode) return data;
+      return { ...data, todoSortMode: action.mode };
     }
     case 'replaceData': {
       return action.data;

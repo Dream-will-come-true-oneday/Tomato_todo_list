@@ -45,6 +45,7 @@ describe('App workflows', () => {
     fireEvent.click(screen.getByRole('button', { name: /^新增$/ }));
 
     expect(screen.getByDisplayValue('复盘产品体验')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '展开 复盘产品体验 的详情' }));
     fireEvent.click(screen.getByLabelText('复盘产品体验 类型标签 读书'));
 
     fireEvent.change(screen.getByLabelText('复盘产品体验 状态'), {
@@ -132,24 +133,19 @@ describe('App workflows', () => {
     expect(screen.getByText('批量任务 B')).toBeTruthy();
   });
 
-  it('asks for confirmation before deleting a type tag', () => {
+  it('deletes a type tag directly and restores it through the undo toast', () => {
     render(<App />);
     fireEvent.click(screen.getByRole('button', { name: '待办事项' }));
     fireEvent.click(screen.getByRole('button', { name: /未完成待办/ }));
 
-    fireEvent.click(screen.getByRole('button', { name: '准备删除标签 读书' }));
-
-    expect(screen.getAllByText('读书').length).toBeGreaterThan(0);
-    expect(screen.getByRole('button', { name: '确认删除' })).toBeTruthy();
-
-    fireEvent.click(screen.getByRole('button', { name: '取消' }));
-    expect(screen.queryByRole('button', { name: '确认删除' })).toBeNull();
-    expect(screen.getAllByText('读书').length).toBeGreaterThan(0);
-
-    fireEvent.click(screen.getByRole('button', { name: '准备删除标签 读书' }));
-    fireEvent.click(screen.getByRole('button', { name: '确认删除' }));
+    fireEvent.click(screen.getByRole('button', { name: '删除标签 读书' }));
 
     expect(screen.queryByText('读书')).toBeNull();
+    expect(screen.getByText(/已删除类型标签「读书」/)).toBeTruthy();
+    expect(screen.getByText(/Ctrl\+Z 可撤销/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '撤销' }));
+    expect(screen.getAllByText('读书').length).toBeGreaterThan(0);
   });
 
   it('shows cumulative Pomodoro counts in completed todos', () => {
@@ -361,7 +357,7 @@ describe('App workflows', () => {
     expect((screen.getByLabelText('本周复盘') as HTMLTextAreaElement).value).toBe('完成本周复盘');
   });
 
-  it('requires a type tag before a todo can be completed', () => {
+  it('guides inline without a dialog when completing a todo without a type tag', () => {
     const data = createDefaultAppData();
     data.todos = [createDefaultTodo('需要标签', { status: 'active' })];
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -371,13 +367,13 @@ describe('App workflows', () => {
     fireEvent.click(screen.getByRole('button', { name: '未完成待办' }));
     fireEvent.change(screen.getByLabelText('需要标签 状态'), { target: { value: 'completed' } });
 
-    expect(screen.getByRole('alertdialog')).toBeTruthy();
-    expect(screen.getByText('完成前请选择类型标签')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: '前往添加标签' }));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect((screen.getByLabelText('需要标签 状态') as HTMLSelectElement).value).toBe('active');
+    expect(screen.getByText('完成前请先选择类型标签')).toBeTruthy();
     expect(document.activeElement?.getAttribute('aria-label')).toBe(`需要标签 类型标签 ${data.typeTags[0].name}`);
   });
 
-  it('requires a type tag before a long-term todo can be checked in', () => {
+  it('guides inline without a dialog when checking in a long-term todo without a type tag', () => {
     const data = createDefaultAppData();
     data.todos = [createDefaultTodo('无标签长期任务', { term: 'long', status: 'active' })];
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -387,10 +383,88 @@ describe('App workflows', () => {
     fireEvent.click(screen.getByRole('button', { name: '未完成待办' }));
     fireEvent.click(screen.getByRole('button', { name: '无标签长期任务 今日打卡' }));
 
-    expect(screen.getByRole('alertdialog')).toBeTruthy();
-    expect(screen.getByText('打卡前请选择类型标签')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: '前往添加标签' }));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(screen.getByText('打卡前请先选择类型标签')).toBeTruthy();
     expect(document.activeElement?.getAttribute('aria-label')).toBe(`无标签长期任务 类型标签 ${data.typeTags[0].name}`);
+  });
+
+  it('switches pages with number keys and jumps to the new-todo input with N', () => {
+    render(<App />);
+    expect(screen.getByText('知行合一')).toBeTruthy();
+
+    fireEvent.keyDown(document, { key: '2' });
+    expect(screen.getByLabelText('类型名称')).toBeTruthy();
+
+    fireEvent.keyDown(document, { key: '3' });
+    expect(screen.getByRole('heading', { name: '每日时间安排' })).toBeTruthy();
+
+    fireEvent.keyDown(document, { key: '1' });
+    expect(screen.getByText('知行合一')).toBeTruthy();
+
+    fireEvent.keyDown(document, { key: 'n' });
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('新增待办标题');
+  });
+
+  it('shows today overview cards on the home page', () => {
+    const today = toDateKey();
+    const data = createDefaultAppData();
+    data.todos = [
+      createDefaultTodo('今日概览任务', { startAt: today, dueAt: today, status: 'active' }),
+      createDefaultTodo('未排期待办', { startAt: null, dueAt: null, status: 'active' })
+    ];
+    data.pomodoroRecords = [
+      {
+        id: 'record-overview',
+        todoId: data.todos[0].id,
+        presetId: data.presets[0].id,
+        startedAt: new Date().toISOString(),
+        endedAt: new Date().toISOString(),
+        plannedFocusMinutes: 25,
+        actualElapsedSeconds: 1500,
+        completionType: 'completed'
+      }
+    ];
+    data.dailySchedule = {
+      enabled: true,
+      soundEnabled: false,
+      desktopNotificationEnabled: false,
+      autoLaunch: false,
+      items: [
+        { id: 'schedule-overview', startTime: '00:00', endTime: '23:59', title: '全天候测试时段', rule: '', enabled: true }
+      ]
+    };
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+
+    render(<App />);
+
+    expect(screen.getByText('今日待办')).toBeTruthy();
+    expect(screen.getByText('1 项')).toBeTruthy();
+    expect(screen.getByText('今日番茄')).toBeTruthy();
+    expect(screen.getByText('1 个')).toBeTruthy();
+    expect(screen.getByText('当前时段')).toBeTruthy();
+    expect(screen.getByText('全天候测试时段')).toBeTruthy();
+  });
+
+  it('persists the manual sort mode toggle across reloads', () => {
+    const { unmount } = render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: '待办事项' }));
+    fireEvent.click(screen.getByRole('button', { name: /未完成待办/ }));
+
+    const shortToggle = screen.getByRole('group', { name: '短期待办 排序模式' });
+    const longToggle = screen.getByRole('group', { name: '长期待办 排序模式' });
+    expect(within(shortToggle).getByRole('button', { name: '按日程' }).getAttribute('aria-pressed')).toBe('true');
+
+    fireEvent.click(within(shortToggle).getByRole('button', { name: '手动' }));
+    expect(within(shortToggle).getByRole('button', { name: '手动' }).getAttribute('aria-pressed')).toBe('true');
+    expect(within(longToggle).getByRole('button', { name: '手动' }).getAttribute('aria-pressed')).toBe('true');
+
+    unmount();
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: '待办事项' }));
+    fireEvent.click(screen.getByRole('button', { name: /未完成待办/ }));
+
+    const reloadedToggle = screen.getByRole('group', { name: '短期待办 排序模式' });
+    expect(within(reloadedToggle).getByRole('button', { name: '手动' }).getAttribute('aria-pressed')).toBe('true');
   });
 
   it('shows a same-day completed and checked-in todo as one completed achievement', () => {
@@ -533,9 +607,13 @@ describe('App workflows', () => {
     expect(screen.getByDisplayValue('早餐和咖啡')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: '删除安排 早餐和咖啡' }));
-    expect(screen.getByText('确定删除“早餐和咖啡”吗？')).toBeTruthy();
-    fireEvent.click(screen.getAllByRole('button', { name: '取消' })[0]);
+    expect(screen.getByText(/已删除每日安排「早餐和咖啡」/)).toBeTruthy();
+    expect(screen.getByText(/Ctrl\+Z 可撤销/)).toBeTruthy();
+    expect(screen.queryByDisplayValue('早餐和咖啡')).toBeNull();
+
+    fireEvent.keyDown(document, { key: 'z', ctrlKey: true });
     expect(screen.getByDisplayValue('早餐和咖啡')).toBeTruthy();
+    expect(screen.getByText('已撤销')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: '恢复默认' }));
     expect(screen.getByText('恢复默认安排会替换当前全部时间段，是否继续？')).toBeTruthy();

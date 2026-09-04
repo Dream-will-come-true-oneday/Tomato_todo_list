@@ -1,5 +1,6 @@
 import { ChevronRight } from 'lucide-react';
 import { useState } from 'react';
+import { DatePicker } from '../components/DatePicker';
 import { PageTitle } from '../components/PageTitle';
 import {
   AchievementIcon,
@@ -14,7 +15,7 @@ import { achievementTime, buildCompletedTodoGroups, filterCompletedTodoGroups, t
 import { getAchievementTypeTagShares } from '../domain/reporting';
 import { toDateKey } from '../domain/todoFilters';
 import type { Todo } from '../domain/types';
-import { defaultTodoFilters, type TodoFilterState, type TypeTagView } from '../lib/todoView';
+import { defaultTodoFilters, type TodoFilterState, type TypeTagView } from '../domain/todoView';
 
 export default function CompletedTodosPage({
   data,
@@ -63,7 +64,12 @@ export default function CompletedTodosPage({
       <div className="toolbar narrow-toolbar">
         <label>
           日期
-          <input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
+          <DatePicker
+            ariaLabel="已完成页筛选日期"
+            value={date}
+            clearable={false}
+            onChange={(next) => setDate(next ?? toDateKey())}
+          />
         </label>
       </div>
       <TodoFilterBar
@@ -74,10 +80,10 @@ export default function CompletedTodosPage({
       />
       {completedGroups.some((group) => group.children.length > 0) && (
         <div className="tree-bulk-actions completed-tree-actions" aria-label="已完成待办子任务显示">
-          <button className="ghost-button" type="button" onClick={expandAllCompletedGroups}>
+          <button className="btn-secondary" type="button" onClick={expandAllCompletedGroups}>
             全部展开
           </button>
-          <button className="ghost-button" type="button" onClick={collapseAllCompletedGroups}>
+          <button className="btn-secondary" type="button" onClick={collapseAllCompletedGroups}>
             全部收起
           </button>
         </div>
@@ -89,7 +95,7 @@ export default function CompletedTodosPage({
           const isExpanded = isCompletedGroupExpanded(group);
           return (
             <div className="done-group" key={group.parent.id}>
-              <div className="done-row done-parent">
+              <div className="done-row done-parent row-completed">
                 {hasChildren ? (
                   <button
                     className={isExpanded ? 'tree-toggle expanded' : 'tree-toggle'}
@@ -119,7 +125,7 @@ export default function CompletedTodosPage({
                 <span>{achievementTime(group.parent, group.parentAchievementKind)}</span>
               </div>
               {hasChildren && isExpanded && group.children.map(({ todo: child, achievementKind }) => (
-                <div className="done-row done-child" key={child.id}>
+                <div className="done-row done-child row-completed" key={child.id}>
                   <span className="tree-toggle-spacer" aria-hidden="true" />
                   <span className="branch-mark">└</span>
                   <strong>{child.title}</strong>

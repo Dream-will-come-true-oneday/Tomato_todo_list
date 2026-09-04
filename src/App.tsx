@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { type TimerPanelHandle, type TimerSnapshot } from './components/TimerPanel';
+import { ToastHost, useToasts } from './components/Toast';
 import { TopNav } from './components/TopNav';
 import { GlobalSettingsDialog } from './components/GlobalSettingsDialog';
 import { getDesktopBridge } from './desktopBridge';
@@ -15,6 +16,7 @@ import {
   createTypeTag
 } from './domain/defaultData';
 import {
+  getCurrentScheduleItem,
   getLatestMissedScheduleReminder,
   getScheduleReminderKey,
   type ScheduleReminder
@@ -31,7 +33,8 @@ import type {
 } from './domain/types';
 import { buildTodayPlanTodos } from './domain/todayPlan';
 import { currentIso } from './lib/dateUtils';
-import type { Page } from './pages/types';
+import { isEditableTarget } from './lib/keyboard';
+import type { Page } from './lib/navigation';
 import HomePage from './pages/HomePage';
 import TodoHubPage from './pages/TodoHubPage';
 import TodayPlanPage from './pages/TodayPlanPage';
@@ -62,6 +65,7 @@ export default function App() {
   const [undoState, dispatchUndoable] = useReducer(undoableAppReducer, initialLoad.data, initUndoableState);
   const data = undoState.data;
   const [page, setPage] = useState<Page>('home');
+  const [newTodoFocusSignal, setNewTodoFocusSignal] = useState(0);
   const [recovered, setRecovered] = useState(initialLoad.recovered);
   const [selectedPomodoroTodoId, setSelectedPomodoroTodoId] = useState<string | null>(null);
   const [todoTagFocusId, setTodoTagFocusId] = useState<string | null>(null);
@@ -78,22 +82,26 @@ export default function App() {
   undoStateRef.current = undoState;
   const settingsOpenRef = useRef(settingsOpen);
   settingsOpenRef.current = settingsOpen;
-  const [undoToast, setUndoToast] = useState<{ message: string; canUndo: boolean } | null>(null);
-  const undoToastTimerRef = useRef<number | null>(null);
+  const { toasts, showToast, dismissToast } = useToasts();
+  const undoToastIdRef = useRef<number | null>(null);
   const prevUndoTopSeqRef = useRef<number | undefined>(undefined);
 
   function flashUndoToast(message: string, canUndo: boolean, duration: number) {
-    setUndoToast({ message, canUndo });
-    if (undoToastTimerRef.current !== null) window.clearTimeout(undoToastTimerRef.current);
-    undoToastTimerRef.current = window.setTimeout(() => setUndoToast(null), duration);
+    if (undoToastIdRef.current !== null) dismissToast(undoToastIdRef.current);
+    undoToastIdRef.current = showToast(
+      canUndo ? `${message} — Ctrl+Z 可撤销` : message,
+      {
+        action: canUndo ? { label: '撤销', perform: performUndo } : undefined,
+        duration
+      }
+    );
   }
 
   function hideUndoToast() {
-    if (undoToastTimerRef.current !== null) {
-      window.clearTimeout(undoToastTimerRef.current);
-      undoToastTimerRef.current = null;
+    if (undoToastIdRef.current !== null) {
+      dismissToast(undoToastIdRef.current);
+      undoToastIdRef.current = null;
     }
-    setUndoToast(null);
   }
 
   function performUndo() {
@@ -122,6 +130,8 @@ export default function App() {
   performUndoRef.current = performUndo;
   const performRedoRef = useRef(performRedo);
   performRedoRef.current = performRedo;
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
 
   useEffect(() => {
     const top = undoState.undoStack[0];
@@ -133,44 +143,57 @@ export default function App() {
     }
   }, [undoState.undoStack]);
 
-  useEffect(
-    () => () => {
-      if (undoToastTimerRef.current !== null) window.clearTimeout(undoToastTimerRef.current);
-    },
-    []
-  );
-
   useEffect(() => {
-    function handleUndoShortcut(event: KeyboardEvent) {
-      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
-      const key = event.key.toLowerCase();
-      if (key !== 'z' && key !== 'y') return;
-      const target = event.target;
-      if (target instanceof HTMLElement) {
-        const tagName = target.tagName;
-        if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT' || target.isContentEditable) return;
+    // 数字键 1-4 切换 TopNav 前四页；N 跳转未完成页并聚焦新增输入
+    const SHORTCUT_PAGES: Page[] = ['home', 'pomodoro', 'dailySchedule', 'todoHub'];
+    function handleGlobalShortcut(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && !event.altKey) {
+        const key = event.key.toLowerCase();
+        if (key !== 'z' && key !== 'y') return;
+        if (isEditableTarget(event.target)) return;
+        if (settingsOpenRef.current) return;
+        // 对话框与内联确认条挂起期间 Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y 不应触发撤销或重做
+        if (
+          document.querySelector(
+            '[role="dialog"][aria-modal="true"], [role="alertdialog"], .inline-confirmation'
+          )
+        ) {
+          return;
+        }
+        event.preventDefault();
+        // Ctrl+Y 或 Ctrl+Shift+Z 走重做；Ctrl+Z 保持撤销
+        if (key === 'y' || event.shiftKey) {
+          performRedoRef.current();
+          return;
+        }
+        performUndoRef.current();
+        return;
       }
+
+      if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+      if (isEditableTarget(event.target)) return;
       if (settingsOpenRef.current) return;
-      // 对话框守卫追加两类每日安排内联确认条（role="alert" 不在对话框选择器内），
-      // 确认挂起期间 Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y 不应触发撤销或重做
       if (
         document.querySelector(
-          '[role="dialog"][aria-modal="true"], [role="alertdialog"], .inline-confirmation, .daily-item-delete-confirmation'
+          '[role="dialog"][aria-modal="true"], [role="alertdialog"], .inline-confirmation'
         )
       ) {
         return;
       }
-      event.preventDefault();
-      // Ctrl+Y 或 Ctrl+Shift+Z 走重做；Ctrl+Z 保持撤销
-      if (key === 'y' || event.shiftKey) {
-        performRedoRef.current();
+      if (event.key === 'n' || event.key === 'N') {
+        event.preventDefault();
+        navigateRef.current('incomplete');
+        setNewTodoFocusSignal((current) => current + 1);
         return;
       }
-      performUndoRef.current();
+      const shortcutPageIndex = SHORTCUT_PAGES.findIndex((_, index) => event.key === String(index + 1));
+      if (shortcutPageIndex === -1) return;
+      event.preventDefault();
+      navigateRef.current(SHORTCUT_PAGES[shortcutPageIndex]);
     }
 
-    document.addEventListener('keydown', handleUndoShortcut);
-    return () => document.removeEventListener('keydown', handleUndoShortcut);
+    document.addEventListener('keydown', handleGlobalShortcut);
+    return () => document.removeEventListener('keydown', handleGlobalShortcut);
   }, []);
 
   useEffect(() => {
@@ -240,6 +263,17 @@ export default function App() {
   const todayPlanTodos = useMemo(
     () => buildTodayPlanTodos(data.todos, data.todayPlans, today),
     [data.todos, data.todayPlans, today]
+  );
+
+  const homeOverview = useMemo(
+    () => ({
+      todayTodoCount: todayPlanTodos.length,
+      todayPomodoroCount: data.pomodoroRecords.filter(
+        (record) => record.completionType === 'completed' && toDateKey(new Date(record.startedAt)) === today
+      ).length,
+      currentScheduleItem: getCurrentScheduleItem(data.dailySchedule.items)
+    }),
+    [todayPlanTodos, data.pomodoroRecords, data.dailySchedule.items, today]
   );
 
   useEffect(() => {
@@ -318,7 +352,7 @@ export default function App() {
       </button>
       {page !== 'home' && <TopNav page={page} onNavigate={navigate} />}
 
-      {page === 'home' && <HomePage onNavigate={navigate} />}
+      {page === 'home' && <HomePage overview={homeOverview} onNavigate={navigate} />}
       {page === 'pomodoro' && (
         <PomodoroPage
           activePreset={activePreset}
@@ -381,6 +415,11 @@ export default function App() {
           onToggleTodoCheckIn={(todoId) => dispatchData({ type: 'toggleTodoCheckIn', todoId, date: today })}
           focusTodoId={todoTagFocusId}
           onFocusHandled={() => setTodoTagFocusId(null)}
+          focusNewTodoSignal={newTodoFocusSignal}
+          onToast={showToast}
+          sortMode={data.todoSortMode}
+          onSortModeChange={(mode) => dispatchData({ type: 'setTodoSortMode', mode })}
+          onReorderTodos={(parentId, orderedIds) => dispatchData({ type: 'reorderTodos', parentId, orderedIds })}
         />
       )}
       {page === 'completed' && (
@@ -435,18 +474,7 @@ export default function App() {
           onReplaceData={replaceData}
         />
       )}
-      {undoToast && (
-        <div className="undo-toast" role="status">
-          <span className="undo-toast-message">
-            {undoToast.canUndo ? `${undoToast.message} — Ctrl+Z 可撤销` : undoToast.message}
-          </span>
-          {undoToast.canUndo && (
-            <button type="button" className="undo-toast-action" onClick={performUndo}>
-              撤销
-            </button>
-          )}
-        </div>
-      )}
+      <ToastHost toasts={toasts} onDismiss={dismissToast} />
     </main>
   );
 }
